@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Track {
+  id          String   @id // ISRC
+  deezerId    String?  @unique
+  title       String
+  artist      String
+  album       String?
+  duration    Int?     // ms
+  preview     String?  // URL preview 30s
+  cover       String?  // URL cover
+  releaseDate DateTime?
+
+  // freqblog audio features
+  bpm             Float?
+  bpmConfidence   Float?
+  key             String?
+  keyConfidence   Float?
+  mode            Int?
+  camelot         String?
+  energy          Float?
+  danceability    Float?
+  valence         Float?
+  acousticness    Float?
+  instrumentalness Float?
+  liveness        Float?
+  speechiness     Float?
+  loudnessDb      Float?
+  mood            String?
+  genre           String?
+  analysedAt      DateTime?
+
+  playlistTracks  PlaylistTrack[]
+  history         ListeningHistory[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Folder {
+  id        String     @id @default(cuid())
+  name      String
+  position  Int        @default(0)
+  playlists Playlist[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model Playlist {
+  id          String          @id @default(cuid())
+  name        String
+  description String?
+  cover       String?
+  deezerId    String?         @unique
+  folderId    String?
+  folder      Folder?         @relation(fields: [folderId], references: [id])
+  tracks      PlaylistTrack[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+model PlaylistTrack {
+  id         String   @id @default(cuid())
+  playlistId String
+  trackId    String
+  position   Int
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  track      Track    @relation(fields: [trackId], references: [id])
+  addedAt    DateTime @default(now())
+
+  @@unique([playlistId, trackId])
+}
+
+model ListeningHistory {
+  id        String   @id @default(cuid())
+  trackId   String
+  track     Track    @relation(fields: [trackId], references: [id])
+  playedAt  DateTime @default(now())
+  duration  Int?     // ms écoutés
+}
