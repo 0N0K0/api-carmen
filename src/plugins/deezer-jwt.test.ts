@@ -90,6 +90,15 @@ describe('deezer-jwt', () => {
     await expect(getDeezerJwt()).rejects.toThrow('Deezer JWT auth failed: 403');
   });
 
+  it('lève une erreur si le corps de la réponse n\'est pas du JSON valide', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: () => Promise.resolve('<html>Error</html>'),
+    } as unknown as Response);
+    await expect(getDeezerJwt()).rejects.toThrow('invalid JSON response from auth endpoint');
+  });
+
   it('lève une erreur si le token retourné est absent', async () => {
     vi.mocked(fetch).mockResolvedValue({
       ok: true,
