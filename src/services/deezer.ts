@@ -168,14 +168,19 @@ async function pipeFetch<T>(
     throw new Error(`Deezer Pipe HTTP error: ${response.status} ${response.statusText}`);
   }
 
-  const json = await response.json() as { data?: T; errors?: { message: string }[] };
+  const json = await response.json() as { data?: T | null; errors?: unknown[] };
 
-  if (json.errors && !json.data) {
-    const msg = json.errors.map((e) => e.message).join(', ');
-    throw new Error(`Deezer Pipe GraphQL error: ${msg}`);
+  if (!json.data) {
+    const msgs = Array.isArray(json.errors)
+      ? json.errors
+          .map((e) => (typeof e === 'object' && e !== null && 'message' in e ? String((e as { message: unknown }).message) : ''))
+          .filter(Boolean)
+          .join(', ')
+      : '';
+    throw new Error(`Deezer Pipe GraphQL error${msgs ? ': ' + msgs : ''}`);
   }
 
-  return json.data as T;
+  return json.data;
 }
 
 /**
@@ -307,14 +312,28 @@ query GetFavoritePlaylists($first: Int) {
 type PipeEdge<T> = { node: T };
 type PipeConnection<T> = { edges: PipeEdge<T>[] };
 type PipeContributorNode = { id: string; name: string };
-type PipeContributorEdge = { node: PipeContributorNode };
 
-function mapTrackNode(node: {
-  id: string; title: string; duration: number; ISRC?: string | null;
-  isExplicit?: boolean | null; isFavorite?: boolean | null;
+type RawTrackNode = {
+  id: string;
+  title: string;
+  duration: number;
+  ISRC?: string | null;
+  isExplicit?: boolean | null;
+  isFavorite?: boolean | null;
   album?: { id: string; displayTitle: string } | null;
   contributors?: PipeConnection<PipeContributorNode>;
-}): PipeTrack {
+};
+
+type RawAlbumNode = {
+  id: string;
+  displayTitle: string;
+  releaseDate?: string | null;
+  isExplicit?: boolean | null;
+  isFavorite?: boolean | null;
+  contributors?: PipeConnection<PipeContributorNode>;
+};
+
+function mapTrackNode(node: RawTrackNode): PipeTrack {
   return {
     id: node.id,
     title: node.title,
@@ -323,22 +342,18 @@ function mapTrackNode(node: {
     isExplicit: node.isExplicit ?? null,
     isFavorite: node.isFavorite ?? null,
     album: node.album ?? null,
-    artists: (node.contributors?.edges ?? []).map((e: PipeContributorEdge) => e.node),
+    artists: (node.contributors?.edges ?? []).map((e) => e.node),
   };
 }
 
-function mapAlbumNode(node: {
-  id: string; displayTitle: string; releaseDate?: string | null;
-  isExplicit?: boolean | null; isFavorite?: boolean | null;
-  contributors?: PipeConnection<PipeContributorNode>;
-}): PipeAlbum {
+function mapAlbumNode(node: RawAlbumNode): PipeAlbum {
   return {
     id: node.id,
     displayTitle: node.displayTitle,
     releaseDate: node.releaseDate ?? null,
     isExplicit: node.isExplicit ?? null,
     isFavorite: node.isFavorite ?? null,
-    contributors: (node.contributors?.edges ?? []).map((e: PipeContributorEdge) => e.node),
+    contributors: (node.contributors?.edges ?? []).map((e) => e.node),
   };
 }
 
@@ -364,9 +379,9 @@ export async function getCurrentUser(): Promise<PipeUser> {
  */
 export async function getUserTracks(limit: number = 25): Promise<PipeTrack[]> {
   const data = await pipeFetch<{
-    me: { userFavorites: { tracks: PipeConnection<unknown> } };
+    me: { userFavorites: { tracks: PipeConnection<RawTrackNode> } };
   }>(Q_GET_FAVORITE_TRACKS, 'GetFavoriteTracks', { first: limit });
-  return data.me.userFavorites.tracks.edges.map((e) => mapTrackNode(e.node as Parameters<typeof mapTrackNode>[0]));
+  return data.me.userFavorites.tracks.edges.map((e) => mapTrackNode(e.node));
 }
 
 /**
@@ -376,9 +391,9 @@ export async function getUserTracks(limit: number = 25): Promise<PipeTrack[]> {
  */
 export async function getUserAlbums(limit: number = 25): Promise<PipeAlbum[]> {
   const data = await pipeFetch<{
-    me: { userFavorites: { albums: PipeConnection<unknown> } };
+    me: { userFavorites: { albums: PipeConnection<RawAlbumNode> } };
   }>(Q_GET_FAVORITE_ALBUMS, 'GetFavoriteAlbums', { first: limit });
-  return data.me.userFavorites.albums.edges.map((e) => mapAlbumNode(e.node as Parameters<typeof mapAlbumNode>[0]));
+  return data.me.userFavorites.albums.edges.map((e) => mapAlbumNode(e.node));
 }
 
 /**
