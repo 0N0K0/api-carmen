@@ -351,6 +351,24 @@ describe('deezer service', () => {
       await expect(getCurrentUser()).rejects.toThrow('Deezer Pipe GraphQL error: Unauthorized');
     });
 
+    it('throws on GraphQL errors with null message (Pipe)', async () => {
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ errors: [{ message: null }] }),
+      } as unknown as Response);
+      await expect(getCurrentUser()).rejects.toThrow('Deezer Pipe GraphQL error');
+    });
+
+    it('throws on malformed JSON from Pipe API', async () => {
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(new SyntaxError('Unexpected token')),
+      } as unknown as Response);
+      await expect(getCurrentUser()).rejects.toThrow('Deezer Pipe invalid JSON response');
+    });
+
     it('throws on generic Deezer REST API error', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       vi.mocked(fetch).mockResolvedValue(

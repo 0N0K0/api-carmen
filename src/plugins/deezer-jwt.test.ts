@@ -99,14 +99,13 @@ describe('deezer-jwt', () => {
     await expect(getDeezerJwt()).rejects.toThrow('invalid token');
   });
 
-  it('lève une erreur si le token est malformé (< 3 parties)', async () => {
+  it('lève une erreur si le payload JWT n\'est pas du JSON base64 valide', async () => {
     vi.mocked(fetch).mockResolvedValue({
       ok: true,
       status: 200,
-      text: () => Promise.resolve(JSON.stringify({ jwt: 'not.a.valid' })),
+      text: () => Promise.resolve(JSON.stringify({ jwt: 'header.!!!notbase64!!!.sig' })),
     } as unknown as Response);
-    // "not.a.valid" a 3 parties mais le payload n'est pas du JSON base64 valide
-    await expect(getDeezerJwt()).rejects.toThrow();
+    await expect(getDeezerJwt()).rejects.toThrow('failed to parse token expiry');
   });
 
   it('lève une erreur si le payload JWT n\'a pas de champ exp', async () => {

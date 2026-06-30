@@ -168,12 +168,17 @@ async function pipeFetch<T>(
     throw new Error(`Deezer Pipe HTTP error: ${response.status} ${response.statusText}`);
   }
 
-  const json = await response.json() as { data?: T | null; errors?: unknown[] };
+  let json: { data?: T | null; errors?: unknown[] };
+  try {
+    json = await response.json() as typeof json;
+  } catch {
+    throw new Error('Deezer Pipe invalid JSON response');
+  }
 
   if (!json.data) {
     const msgs = Array.isArray(json.errors)
       ? json.errors
-          .map((e) => (typeof e === 'object' && e !== null && 'message' in e ? String((e as { message: unknown }).message) : ''))
+          .map((e) => (typeof e === 'object' && e !== null && 'message' in e && typeof (e as { message: unknown }).message === 'string' ? (e as { message: string }).message : ''))
           .filter(Boolean)
           .join(', ')
       : '';
