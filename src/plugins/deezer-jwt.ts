@@ -20,9 +20,9 @@ async function refreshJwt(): Promise<string> {
     throw new Error(`Deezer JWT auth failed: ${response.status} ${response.statusText}`);
   }
 
-  const data = JSON.parse(await response.text()) as { jwt?: string };
+  const data = JSON.parse(await response.text()) as { jwt?: unknown };
   const jwt = data.jwt;
-  if (!jwt || jwt.split('.').length !== 3) {
+  if (typeof jwt !== 'string' || !jwt || jwt.split('.').length !== 3) {
     throw new Error('Deezer JWT auth returned invalid token');
   }
 
