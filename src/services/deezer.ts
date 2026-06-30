@@ -4,6 +4,8 @@ import {
   DeezerError,
   DeezerList,
   DeezerPlaylist,
+  DeezerPodcast,
+  DeezerRadio,
   DeezerSearchResults,
   DeezerSearchType,
   DeezerTrack,
@@ -14,6 +16,7 @@ import {
 const DEEZER_API = 'https://api.deezer.com';
 const RATE_LIMIT_MAX = 50;
 const RATE_LIMIT_WINDOW_MS = 5000;
+const REQUEST_TIMEOUT_MS = 10000;
 
 /**
  * Limiteur de débit à fenêtre glissante pour l'API Deezer (50 req / 5 s).
@@ -54,7 +57,7 @@ class RateLimiter {
         resolve();
       } else {
         const oldest = this.timestamps[0];
-        const wait = RATE_LIMIT_WINDOW_MS - (now - oldest);
+        const wait = Math.max(0, RATE_LIMIT_WINDOW_MS - (now - oldest));
         await new Promise((r) => setTimeout(r, wait));
       }
     }
@@ -65,12 +68,20 @@ class RateLimiter {
 const rateLimiter = new RateLimiter();
 
 /**
- * Type guard — retourne `true` si la réponse Deezer contient un champ `error`.
+ * Type guard — retourne `true` si la réponse Deezer contient un champ `error` bien formé.
  * @param {unknown} data Corps JSON brut de la réponse.
  * @returns {boolean} `true` si la réponse est une `DeezerError`.
  */
 function isDeezerError(data: unknown): data is DeezerError {
-  return typeof data === 'object' && data !== null && 'error' in data;
+  if (typeof data !== 'object' || data === null || !('error' in data)) return false;
+  const err = (data as Record<string, unknown>).error;
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'code' in err &&
+    'type' in err &&
+    'message' in err
+  );
 }
 
 /**
@@ -109,7 +120,20 @@ async function deezerFetch<T>(
   await rateLimiter.acquire();
 
   const url = `${DEEZER_API}${path}`;
-  const response = await fetch(url, { headers: buildHeaders(useAuth) });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(url, { headers: buildHeaders(useAuth), signal: controller.signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`Deezer request timeout — ${url}`);
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Deezer network error — ${url}: ${msg}`);
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     throw new Error(
@@ -117,7 +141,12 @@ async function deezerFetch<T>(
     );
   }
 
-  const data = (await response.json()) as unknown;
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error(`Deezer invalid JSON response — ${url}`);
+  }
 
   if (isDeezerError(data)) {
     const { code, type, message } = data.error;
@@ -147,13 +176,20 @@ export async function searchDeezer(
   type: DeezerSearchType = 'track',
   limit: number = 25,
 ): Promise<DeezerSearchResults> {
+  const KEY_MAP: Record<DeezerSearchType, keyof DeezerSearchResults> = {
+    track: 'tracks',
+    album: 'albums',
+    artist: 'artists',
+    playlist: 'playlists',
+    user: 'users',
+    radio: 'radios',
+    podcast: 'podcasts',
+  };
   const params = new URLSearchParams({ q: query, limit: String(limit) });
   const data = await deezerFetch<
-    DeezerList<DeezerTrack | DeezerAlbum | DeezerArtist | DeezerPlaylist>
+    DeezerList<DeezerTrack | DeezerAlbum | DeezerArtist | DeezerPlaylist | DeezerUser | DeezerRadio | DeezerPodcast>
   >(`/search/${type}?${params}`);
-  return {
-    [type === 'track' ? 'tracks' : `${type}s`]: data,
-  } as DeezerSearchResults;
+  return { [KEY_MAP[type]]: data } as DeezerSearchResults;
 }
 
 /**

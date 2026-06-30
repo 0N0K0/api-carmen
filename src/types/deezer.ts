@@ -129,6 +129,38 @@ export interface DeezerUser {
   type: 'user';
 }
 
+export interface DeezerRadio {
+  id: number;
+  title: string;
+  description?: string;
+  share?: string;
+  picture?: string;
+  picture_small?: string;
+  picture_medium?: string;
+  picture_big?: string;
+  picture_xl?: string;
+  tracklist: string;
+  md5_image?: string;
+  type: 'radio';
+}
+
+export interface DeezerPodcast {
+  id: number;
+  title: string;
+  description?: string;
+  available?: boolean;
+  fans?: number;
+  link?: string;
+  share?: string;
+  picture?: string;
+  picture_small?: string;
+  picture_medium?: string;
+  picture_big?: string;
+  picture_xl?: string;
+  tracklist?: string;
+  type: 'podcast';
+}
+
 export interface DeezerList<T> {
   data: T[];
   total?: number;
@@ -141,6 +173,9 @@ export interface DeezerSearchResults {
   albums?: DeezerList<DeezerAlbum>;
   artists?: DeezerList<DeezerArtist>;
   playlists?: DeezerList<DeezerPlaylist>;
+  users?: DeezerList<DeezerUser>;
+  radios?: DeezerList<DeezerRadio>;
+  podcasts?: DeezerList<DeezerPodcast>;
 }
 
 export interface DeezerError {

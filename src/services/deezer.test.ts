@@ -179,7 +179,7 @@ describe('deezer service', () => {
     });
 
     it('throws when no preview available', async () => {
-      const trackNoPreview = { ...MOCK_TRACK, preview: undefined };
+      const { preview: _preview, ...trackNoPreview } = MOCK_TRACK;
       vi.mocked(fetch).mockResolvedValue(mockOk(trackNoPreview));
       await expect(getTrackPreviewUrl(1)).rejects.toThrow('No preview available for track 1');
     });
@@ -223,10 +223,17 @@ describe('deezer service', () => {
       expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/user/me/playlists'), expect.anything());
     });
 
-    it('getUserLibrary fires 4 parallel authenticated requests', async () => {
+    it('getUserLibrary fires 4 parallel authenticated requests to distinct endpoints', async () => {
       vi.mocked(fetch).mockResolvedValue(mockOk({ data: [], total: 0 }));
       await getUserLibrary();
       expect(fetch).toHaveBeenCalledTimes(4);
+      const urls = vi.mocked(fetch).mock.calls.map((call) => call[0] as string);
+      expect(urls).toEqual(expect.arrayContaining([
+        expect.stringContaining('/user/me/tracks'),
+        expect.stringContaining('/user/me/albums'),
+        expect.stringContaining('/user/me/artists'),
+        expect.stringContaining('/user/me/playlists'),
+      ]));
       for (const call of vi.mocked(fetch).mock.calls) {
         const headers = (call[1] as RequestInit).headers as Record<string, string>;
         expect(headers['Cookie']).toBe('arl=test-arl-token');
