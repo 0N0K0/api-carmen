@@ -26,7 +26,6 @@ class RateLimiter {
 
   /**
    * Attend qu'un slot soit disponible, puis résout.
-   * @returns {Promise<void>} Résout quand l'appelant peut émettre sa requête.
    */
   async acquire(): Promise<void> {
     return new Promise((resolve) => {
@@ -40,7 +39,6 @@ class RateLimiter {
   /**
    * Vide la file en libérant un waiter par slot disponible.
    * Dort jusqu'à l'expiration du timestamp le plus ancien quand la fenêtre est pleine.
-   * @returns {Promise<void>}
    */
   private async processQueue(): Promise<void> {
     this.processing = true;
@@ -184,7 +182,7 @@ export async function getArtist(id: number | string): Promise<DeezerArtist> {
  */
 export async function getArtistTopTracks(
   id: number | string,
-  limit = 25,
+  limit: number = 25,
 ): Promise<DeezerList<DeezerTrack>> {
   return deezerFetch<DeezerList<DeezerTrack>>(
     `/artist/${id}/top?limit=${limit}`,
@@ -239,7 +237,7 @@ export async function getUserLibrary(): Promise<DeezerUserLibrary> {
  * @returns {Promise<DeezerList<DeezerTrack>>} Liste paginée des tracks sauvegardés.
  */
 export async function getUserTracks(
-  limit = 25,
+  limit: number = 25,
 ): Promise<DeezerList<DeezerTrack>> {
   return deezerFetch<DeezerList<DeezerTrack>>(
     `/user/me/tracks?limit=${limit}`,
@@ -253,7 +251,7 @@ export async function getUserTracks(
  * @returns {Promise<DeezerList<DeezerAlbum>>} Liste paginée des albums sauvegardés.
  */
 export async function getUserAlbums(
-  limit = 25,
+  limit: number = 25,
 ): Promise<DeezerList<DeezerAlbum>> {
   return deezerFetch<DeezerList<DeezerAlbum>>(
     `/user/me/albums?limit=${limit}`,
@@ -267,7 +265,7 @@ export async function getUserAlbums(
  * @returns {Promise<DeezerList<DeezerArtist>>} Liste paginée des artistes suivis.
  */
 export async function getUserArtists(
-  limit = 25,
+  limit: number = 25,
 ): Promise<DeezerList<DeezerArtist>> {
   return deezerFetch<DeezerList<DeezerArtist>>(
     `/user/me/artists?limit=${limit}`,
@@ -281,7 +279,7 @@ export async function getUserArtists(
  * @returns {Promise<DeezerList<DeezerPlaylist>>} Liste paginée des playlists.
  */
 export async function getUserPlaylists(
-  limit = 25,
+  limit: number = 25,
 ): Promise<DeezerList<DeezerPlaylist>> {
   return deezerFetch<DeezerList<DeezerPlaylist>>(
     `/user/me/playlists?limit=${limit}`,
