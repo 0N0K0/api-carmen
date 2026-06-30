@@ -142,6 +142,14 @@ async function deezerFetch<T>(path: string): Promise<T> {
 
 const DEEZER_PIPE_URL = 'https://pipe.deezer.com/api';
 
+function extractGqlMessages(errors: unknown[]): string {
+  const msgs = errors
+    .map((e) => (typeof e === 'object' && e !== null && 'message' in e && typeof (e as { message: unknown }).message === 'string' ? (e as { message: string }).message : ''))
+    .filter(Boolean)
+    .join(', ');
+  return msgs ? ': ' + msgs : '';
+}
+
 /**
  * Exécute une requête GraphQL sur la Pipe API Deezer (endpoints authentifiés).
  * Acquiert ou rafraîchit le JWT automatiquement via l'ARL.
@@ -176,13 +184,7 @@ async function pipeFetch<T>(
   }
 
   if (!json.data) {
-    const msgs = Array.isArray(json.errors)
-      ? json.errors
-          .map((e) => (typeof e === 'object' && e !== null && 'message' in e && typeof (e as { message: unknown }).message === 'string' ? (e as { message: string }).message : ''))
-          .filter(Boolean)
-          .join(', ')
-      : '';
-    throw new Error(`Deezer Pipe GraphQL error${msgs ? ': ' + msgs : ''}`);
+    throw new Error(`Deezer Pipe GraphQL error${extractGqlMessages(json.errors ?? [])}`);
   }
 
   return json.data;
