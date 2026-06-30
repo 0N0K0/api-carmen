@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import { createYoga } from 'graphql-yoga';
 import { schema } from './graphql/schema';
