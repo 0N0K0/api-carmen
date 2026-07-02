@@ -9,9 +9,16 @@ import {
   DeezerSearchResults,
   DeezerSearchType,
   DeezerTrack,
-  DeezerUser,
-  DeezerUserLibrary,
 } from '../types/deezer';
+import {
+  PipeAlbum,
+  PipeFavoriteArtist,
+  PipePlaylist,
+  PipeTrack,
+  PipeUser,
+  PipeUserLibrary,
+} from '../types/deezer-pipe';
+import { getDeezerJwt } from '../plugins/deezer-jwt';
 
 const DEEZER_API = 'https://api.deezer.com';
 const RATE_LIMIT_MAX = 50;
@@ -85,38 +92,13 @@ function isDeezerError(data: unknown): data is DeezerError {
 }
 
 /**
- * Construit les headers HTTP pour une requête Deezer.
- * Si `useAuth` est `true`, injecte le cookie de session ARL depuis `DEEZER_ARL`.
- * @param {boolean} useAuth Indique si le cookie ARL doit être inclus.
- * @returns {Record<string, string>} Objet headers prêt pour `fetch`.
- * @throws {Error} Si `useAuth` est `true` mais que `DEEZER_ARL` n'est pas défini.
- */
-function buildHeaders(useAuth: boolean): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (useAuth) {
-    const arl = process.env.DEEZER_ARL;
-    if (!arl) {
-      throw new Error('DEEZER_ARL not set');
-    }
-    headers['Cookie'] = `arl=${arl}`;
-  }
-  return headers;
-}
-
-/**
- * Wrapper fetch central pour l'API Deezer.
- * Applique le rate limiting, injecte l'auth si nécessaire, et normalise les erreurs.
+ * Wrapper fetch pour l'API REST publique Deezer.
+ * Applique le rate limiting et normalise les erreurs.
  * @param {string} path Chemin API (ex. `/track/123`).
- * @param {boolean} [useAuth=false] Indique si le cookie ARL doit être envoyé.
  * @returns {Promise<T>} Corps de la réponse parsé.
- * @throws {Error} En cas d'erreur HTTP, d'erreur API Deezer, ou d'ARL expiré / absent.
+ * @throws {Error} En cas d'erreur HTTP ou d'erreur API Deezer.
  */
-async function deezerFetch<T>(
-  path: string,
-  useAuth: boolean = false,
-): Promise<T> {
+async function deezerFetch<T>(path: string): Promise<T> {
   await rateLimiter.acquire();
 
   const url = `${DEEZER_API}${path}`;
@@ -124,7 +106,10 @@ async function deezerFetch<T>(
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let response: Response;
   try {
-    response = await fetch(url, { headers: buildHeaders(useAuth), signal: controller.signal });
+    response = await fetch(url, {
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+    });
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
       throw new Error(`Deezer request timeout — ${url}`);
@@ -136,9 +121,7 @@ async function deezerFetch<T>(
   }
 
   if (!response.ok) {
-    throw new Error(
-      `Deezer HTTP error: ${response.status} ${response.statusText} — ${url}`,
-    );
+    throw new Error(`Deezer HTTP error: ${response.status} ${response.statusText} — ${url}`);
   }
 
   let data: unknown;
@@ -150,18 +133,61 @@ async function deezerFetch<T>(
 
   if (isDeezerError(data)) {
     const { code, type, message } = data.error;
-    // ARL expired: Deezer returns code 300 (OAuthException) or 700 (DataException)
-    if (code === 300 || (code === 700 && type === 'DataException')) {
-      console.error(
-        `[deezer] ARL expired or invalid — code ${code}: ${message}`,
-      );
-      throw new Error(`Deezer auth error (${code}): ${message}`);
-    }
     console.error(`[deezer] API error — ${type} (${code}): ${message}`);
     throw new Error(`Deezer error (${code}): ${message}`);
   }
 
   return data as T;
+}
+
+const DEEZER_PIPE_URL = 'https://pipe.deezer.com/api';
+
+function extractGqlMessages(errors: unknown[]): string {
+  const msgs = errors
+    .map((e) => (typeof e === 'object' && e !== null && 'message' in e && typeof (e as { message: unknown }).message === 'string' ? (e as { message: string }).message : ''))
+    .filter(Boolean)
+    .join(', ');
+  return msgs ? ': ' + msgs : '';
+}
+
+/**
+ * Exécute une requête GraphQL sur la Pipe API Deezer (endpoints authentifiés).
+ * Acquiert ou rafraîchit le JWT automatiquement via l'ARL.
+ * @param {string} query Requête GraphQL.
+ * @param {string} operationName Nom de l'opération.
+ * @param {Record<string, unknown>} variables Variables GraphQL.
+ * @returns {Promise<T>} Champ `data` de la réponse GraphQL.
+ * @throws {Error} En cas d'erreur réseau, HTTP ou GraphQL.
+ */
+async function pipeFetch<T>(
+  query: string,
+  operationName: string,
+  variables: Record<string, unknown> = {},
+): Promise<T> {
+  const jwt = await getDeezerJwt();
+  const response = await fetch(DEEZER_PIPE_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ operationName, query, variables }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Deezer Pipe HTTP error: ${response.status} ${response.statusText}`);
+  }
+
+  let json: { data?: T | null; errors?: unknown[] };
+  try {
+    json = await response.json() as typeof json;
+  } catch {
+    throw new Error('Deezer Pipe invalid JSON response');
+  }
+
+  if (!json.data) {
+    throw new Error(`Deezer Pipe GraphQL error${extractGqlMessages(json.errors ?? [])}`);
+  }
+
+  return json.data;
 }
 
 /**
@@ -187,7 +213,7 @@ export async function searchDeezer(
   };
   const params = new URLSearchParams({ q: query, limit: String(limit) });
   const data = await deezerFetch<
-    DeezerList<DeezerTrack | DeezerAlbum | DeezerArtist | DeezerPlaylist | DeezerUser | DeezerRadio | DeezerPodcast>
+    DeezerList<DeezerTrack | DeezerAlbum | DeezerArtist | DeezerPlaylist | DeezerRadio | DeezerPodcast>
   >(`/search/${type}?${params}`);
   return { [KEY_MAP[type]]: data } as DeezerSearchResults;
 }
@@ -245,82 +271,186 @@ export async function getPlaylist(
   return deezerFetch<DeezerPlaylist>(`/playlist/${id}`);
 }
 
+// ---------------------------------------------------------------------------
+// Queries GraphQL — Pipe API (endpoints authentifiés)
+// ---------------------------------------------------------------------------
+
+const Q_GET_ME = `query GetMe { me { id email user { id name } } }`;
+
+const Q_GET_FAVORITE_TRACKS = `
+query GetFavoriteTracks($first: Int) {
+  me { userFavorites { tracks(first: $first) {
+    edges { node {
+      id title duration ISRC isExplicit isFavorite
+      album { id displayTitle }
+      contributors(first: 10, roles: [MAIN, FEATURED]) { edges { node { ... on Artist { id name } } } }
+    } }
+  } } }
+}`;
+
+const Q_GET_FAVORITE_ALBUMS = `
+query GetFavoriteAlbums($first: Int) {
+  me { userFavorites { albums(first: $first) {
+    edges { node {
+      id displayTitle releaseDate isExplicit isFavorite
+      contributors(first: 5, roles: [MAIN]) { edges { node { ... on Artist { id name } } } }
+    } }
+  } } }
+}`;
+
+const Q_GET_FAVORITE_ARTISTS = `
+query GetFavoriteArtists($first: Int) {
+  me { userFavorites { artists(first: $first) {
+    edges { node { id name fansCount isFavorite } }
+  } } }
+}`;
+
+const Q_GET_FAVORITE_PLAYLISTS = `
+query GetFavoritePlaylists($first: Int) {
+  me { userFavorites { playlists(first: $first) {
+    edges { node { id title estimatedTracksCount isFavorite description owner { id name } } }
+  } } }
+}`;
+
+// ---------------------------------------------------------------------------
+// Helpers de mapping Pipe API → types internes
+// ---------------------------------------------------------------------------
+
+type PipeEdge<T> = { node: T };
+type PipeConnection<T> = { edges: PipeEdge<T>[] };
+type PipeContributorNode = { id: string; name: string };
+
+type RawTrackNode = {
+  id: string;
+  title: string;
+  duration: number;
+  ISRC?: string | null;
+  isExplicit?: boolean | null;
+  isFavorite?: boolean | null;
+  album?: { id: string; displayTitle: string } | null;
+  contributors?: PipeConnection<PipeContributorNode>;
+};
+
+type RawAlbumNode = {
+  id: string;
+  displayTitle: string;
+  releaseDate?: string | null;
+  isExplicit?: boolean | null;
+  isFavorite?: boolean | null;
+  contributors?: PipeConnection<PipeContributorNode>;
+};
+
+function mapTrackNode(node: RawTrackNode): PipeTrack {
+  return {
+    id: node.id,
+    title: node.title,
+    duration: node.duration,
+    isrc: node.ISRC ?? null,
+    isExplicit: node.isExplicit ?? null,
+    isFavorite: node.isFavorite ?? null,
+    album: node.album ?? null,
+    artists: (node.contributors?.edges ?? []).map((e) => e.node),
+  };
+}
+
+function mapAlbumNode(node: RawAlbumNode): PipeAlbum {
+  return {
+    id: node.id,
+    displayTitle: node.displayTitle,
+    releaseDate: node.releaseDate ?? null,
+    isExplicit: node.isExplicit ?? null,
+    isFavorite: node.isFavorite ?? null,
+    contributors: (node.contributors?.edges ?? []).map((e) => e.node),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Endpoints authentifiés — Pipe API
+// ---------------------------------------------------------------------------
+
 /**
- * Récupère le profil de l'utilisateur authentifié. Nécessite `DEEZER_ARL`.
- * @returns {Promise<DeezerUser>} Données de l'utilisateur courant.
+ * Récupère le profil de l'utilisateur authentifié via la Pipe API. Nécessite `DEEZER_ARL`.
+ * @returns {Promise<PipeUser>} Profil de l'utilisateur courant.
  */
-export async function getCurrentUser(): Promise<DeezerUser> {
-  return deezerFetch<DeezerUser>('/user/me', true);
+export async function getCurrentUser(): Promise<PipeUser> {
+  const data = await pipeFetch<{
+    me: { id: string; email: string | null; user: { id: string; name: string } };
+  }>(Q_GET_ME, 'GetMe');
+  return { id: data.me.id, name: data.me.user.name, email: data.me.email };
 }
 
 /**
- * Récupère la bibliothèque complète de l'utilisateur authentifié en parallèle. Nécessite `DEEZER_ARL`.
- * @returns {Promise<DeezerUserLibrary>} Tracks, albums, artistes et playlists sauvegardés.
+ * Récupère les tracks favoris de l'utilisateur. Nécessite `DEEZER_ARL`.
+ * @param {number} [limit=25] Nombre maximum de tracks.
+ * @returns {Promise<PipeTrack[]>} Liste des tracks favoris.
  */
-export async function getUserLibrary(): Promise<DeezerUserLibrary> {
+export async function getUserTracks(limit: number = 25): Promise<PipeTrack[]> {
+  const data = await pipeFetch<{
+    me: { userFavorites: { tracks: PipeConnection<RawTrackNode> } };
+  }>(Q_GET_FAVORITE_TRACKS, 'GetFavoriteTracks', { first: limit });
+  return data.me.userFavorites.tracks.edges.map((e) => mapTrackNode(e.node));
+}
+
+/**
+ * Récupère les albums favoris de l'utilisateur. Nécessite `DEEZER_ARL`.
+ * @param {number} [limit=25] Nombre maximum d'albums.
+ * @returns {Promise<PipeAlbum[]>} Liste des albums favoris.
+ */
+export async function getUserAlbums(limit: number = 25): Promise<PipeAlbum[]> {
+  const data = await pipeFetch<{
+    me: { userFavorites: { albums: PipeConnection<RawAlbumNode> } };
+  }>(Q_GET_FAVORITE_ALBUMS, 'GetFavoriteAlbums', { first: limit });
+  return data.me.userFavorites.albums.edges.map((e) => mapAlbumNode(e.node));
+}
+
+/**
+ * Récupère les artistes favoris de l'utilisateur. Nécessite `DEEZER_ARL`.
+ * @param {number} [limit=25] Nombre maximum d'artistes.
+ * @returns {Promise<PipeFavoriteArtist[]>} Liste des artistes favoris.
+ */
+export async function getUserArtists(limit: number = 25): Promise<PipeFavoriteArtist[]> {
+  const data = await pipeFetch<{
+    me: { userFavorites: { artists: PipeConnection<PipeFavoriteArtist> } };
+  }>(Q_GET_FAVORITE_ARTISTS, 'GetFavoriteArtists', { first: limit });
+  return data.me.userFavorites.artists.edges.map((e) => ({
+    id: e.node.id,
+    name: e.node.name,
+    fansCount: e.node.fansCount ?? null,
+    isFavorite: e.node.isFavorite ?? null,
+  }));
+}
+
+/**
+ * Récupère les playlists favorites de l'utilisateur. Nécessite `DEEZER_ARL`.
+ * @param {number} [limit=25] Nombre maximum de playlists.
+ * @returns {Promise<PipePlaylist[]>} Liste des playlists favorites.
+ */
+export async function getUserPlaylists(limit: number = 25): Promise<PipePlaylist[]> {
+  const data = await pipeFetch<{
+    me: { userFavorites: { playlists: PipeConnection<PipePlaylist> } };
+  }>(Q_GET_FAVORITE_PLAYLISTS, 'GetFavoritePlaylists', { first: limit });
+  return data.me.userFavorites.playlists.edges.map((e) => ({
+    id: e.node.id,
+    title: e.node.title,
+    estimatedTracksCount: e.node.estimatedTracksCount ?? null,
+    isFavorite: e.node.isFavorite ?? null,
+    description: e.node.description ?? null,
+    owner: e.node.owner ?? null,
+  }));
+}
+
+/**
+ * Récupère la bibliothèque complète de l'utilisateur en parallèle. Nécessite `DEEZER_ARL`.
+ * @returns {Promise<PipeUserLibrary>} Tracks, albums, artistes et playlists favoris.
+ */
+export async function getUserLibrary(): Promise<PipeUserLibrary> {
   const [tracks, albums, artists, playlists] = await Promise.all([
-    deezerFetch<DeezerList<DeezerTrack>>('/user/me/tracks', true),
-    deezerFetch<DeezerList<DeezerAlbum>>('/user/me/albums', true),
-    deezerFetch<DeezerList<DeezerArtist>>('/user/me/artists', true),
-    deezerFetch<DeezerList<DeezerPlaylist>>('/user/me/playlists', true),
+    getUserTracks(50),
+    getUserAlbums(50),
+    getUserArtists(50),
+    getUserPlaylists(50),
   ]);
   return { tracks, albums, artists, playlists };
-}
-
-/**
- * Récupère les tracks sauvegardés de l'utilisateur authentifié. Nécessite `DEEZER_ARL`.
- * @param {number} [limit=25] Nombre maximum de tracks.
- * @returns {Promise<DeezerList<DeezerTrack>>} Liste paginée des tracks sauvegardés.
- */
-export async function getUserTracks(
-  limit: number = 25,
-): Promise<DeezerList<DeezerTrack>> {
-  return deezerFetch<DeezerList<DeezerTrack>>(
-    `/user/me/tracks?limit=${limit}`,
-    true,
-  );
-}
-
-/**
- * Récupère les albums sauvegardés de l'utilisateur authentifié. Nécessite `DEEZER_ARL`.
- * @param {number} [limit=25] Nombre maximum d'albums.
- * @returns {Promise<DeezerList<DeezerAlbum>>} Liste paginée des albums sauvegardés.
- */
-export async function getUserAlbums(
-  limit: number = 25,
-): Promise<DeezerList<DeezerAlbum>> {
-  return deezerFetch<DeezerList<DeezerAlbum>>(
-    `/user/me/albums?limit=${limit}`,
-    true,
-  );
-}
-
-/**
- * Récupère les artistes suivis par l'utilisateur authentifié. Nécessite `DEEZER_ARL`.
- * @param {number} [limit=25] Nombre maximum d'artistes.
- * @returns {Promise<DeezerList<DeezerArtist>>} Liste paginée des artistes suivis.
- */
-export async function getUserArtists(
-  limit: number = 25,
-): Promise<DeezerList<DeezerArtist>> {
-  return deezerFetch<DeezerList<DeezerArtist>>(
-    `/user/me/artists?limit=${limit}`,
-    true,
-  );
-}
-
-/**
- * Récupère les playlists de l'utilisateur authentifié. Nécessite `DEEZER_ARL`.
- * @param {number} [limit=25] Nombre maximum de playlists.
- * @returns {Promise<DeezerList<DeezerPlaylist>>} Liste paginée des playlists.
- */
-export async function getUserPlaylists(
-  limit: number = 25,
-): Promise<DeezerList<DeezerPlaylist>> {
-  return deezerFetch<DeezerList<DeezerPlaylist>>(
-    `/user/me/playlists?limit=${limit}`,
-    true,
-  );
 }
 
 /**

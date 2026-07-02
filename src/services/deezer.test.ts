@@ -14,14 +14,31 @@ import {
   getUserTracks,
   searchDeezer,
 } from './deezer';
-import type { DeezerAlbum, DeezerArtist, DeezerPlaylist, DeezerTrack, DeezerUser } from '../types/deezer';
+import type { DeezerAlbum, DeezerArtist, DeezerPlaylist, DeezerTrack } from '../types/deezer';
+import { getDeezerJwt } from '../plugins/deezer-jwt';
 
-function mockOk(data: unknown): Response {
+vi.mock('../plugins/deezer-jwt', () => ({
+  getDeezerJwt: vi.fn(),
+  resetDeezerJwt: vi.fn(),
+}));
+
+const PIPE_URL = 'https://pipe.deezer.com/api';
+
+function mockRestOk(data: unknown): Response {
   return {
     ok: true,
     status: 200,
     statusText: 'OK',
     json: () => Promise.resolve(data),
+  } as unknown as Response;
+}
+
+function mockPipeOk(data: unknown): Response {
+  return {
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    json: () => Promise.resolve({ data }),
   } as unknown as Response;
 }
 
@@ -48,7 +65,7 @@ const MOCK_TRACK: DeezerTrack = {
 const MOCK_ARTIST: DeezerArtist = {
   id: 10,
   name: 'Artist',
-  link: 'https://www.deezer.com/artist/10',
+  link: '',
   picture: '',
   picture_small: '',
   picture_medium: '',
@@ -61,7 +78,7 @@ const MOCK_ARTIST: DeezerArtist = {
 const MOCK_ALBUM: DeezerAlbum = {
   id: 20,
   title: 'Album',
-  link: 'https://www.deezer.com/album/20',
+  link: '',
   cover: '',
   cover_small: '',
   cover_medium: '',
@@ -74,32 +91,63 @@ const MOCK_ALBUM: DeezerAlbum = {
 const MOCK_PLAYLIST: DeezerPlaylist = {
   id: 30,
   title: 'Playlist',
-  link: 'https://www.deezer.com/playlist/30',
+  link: '',
   tracklist: '',
   type: 'playlist',
 };
 
-const MOCK_USER: DeezerUser = {
-  id: 99,
-  name: 'Test User',
-  link: 'https://www.deezer.com/profile/99',
-  type: 'user',
+// Réponses Pipe API mockées
+const PIPE_TRACK_NODE = {
+  id: '1',
+  title: 'Test Track',
+  duration: 180,
+  ISRC: 'USTEST000001',
+  isExplicit: false,
+  isFavorite: true,
+  album: { id: '20', displayTitle: 'Album' },
+  contributors: { edges: [{ node: { id: '10', name: 'Artist' } }] },
+};
+
+const PIPE_ALBUM_NODE = {
+  id: '20',
+  displayTitle: 'Album',
+  releaseDate: '2024-01-01',
+  isExplicit: false,
+  isFavorite: true,
+  contributors: { edges: [{ node: { id: '10', name: 'Artist' } }] },
+};
+
+const PIPE_ARTIST_NODE = { id: '10', name: 'Artist', fansCount: 1000, isFavorite: true };
+
+const PIPE_PLAYLIST_NODE = {
+  id: '30',
+  title: 'Playlist',
+  estimatedTracksCount: 10,
+  isFavorite: true,
+  description: null,
+  owner: { id: '99', name: 'Test User' },
 };
 
 describe('deezer service', () => {
   beforeEach(() => {
     vi.stubEnv('DEEZER_ARL', 'test-arl-token');
     vi.stubGlobal('fetch', vi.fn());
+    vi.mocked(getDeezerJwt).mockResolvedValue('mock-jwt-token');
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+    vi.clearAllMocks();
   });
+
+  // ---------------------------------------------------------------------------
+  // Endpoints publics (REST api.deezer.com)
+  // ---------------------------------------------------------------------------
 
   describe('getTrack', () => {
     it('fetches correct URL and returns track', async () => {
-      vi.mocked(fetch).mockResolvedValue(mockOk(MOCK_TRACK));
+      vi.mocked(fetch).mockResolvedValue(mockRestOk(MOCK_TRACK));
       const track = await getTrack(1);
       expect(fetch).toHaveBeenCalledWith(
         'https://api.deezer.com/track/1',
@@ -109,7 +157,7 @@ describe('deezer service', () => {
     });
 
     it('does not send ARL cookie on public endpoint', async () => {
-      vi.mocked(fetch).mockResolvedValue(mockOk(MOCK_TRACK));
+      vi.mocked(fetch).mockResolvedValue(mockRestOk(MOCK_TRACK));
       await getTrack(1);
       const headers = (vi.mocked(fetch).mock.calls[0][1] as RequestInit).headers as Record<string, string>;
       expect(headers['Cookie']).toBeUndefined();
@@ -118,7 +166,7 @@ describe('deezer service', () => {
 
   describe('getArtist', () => {
     it('fetches /artist/{id}', async () => {
-      vi.mocked(fetch).mockResolvedValue(mockOk(MOCK_ARTIST));
+      vi.mocked(fetch).mockResolvedValue(mockRestOk(MOCK_ARTIST));
       const artist = await getArtist(10);
       expect(fetch).toHaveBeenCalledWith('https://api.deezer.com/artist/10', expect.anything());
       expect(artist.name).toBe('Artist');
@@ -127,7 +175,7 @@ describe('deezer service', () => {
 
   describe('getArtistTopTracks', () => {
     it('fetches /artist/{id}/top with limit', async () => {
-      vi.mocked(fetch).mockResolvedValue(mockOk({ data: [MOCK_TRACK], total: 1 }));
+      vi.mocked(fetch).mockResolvedValue(mockRestOk({ data: [MOCK_TRACK], total: 1 }));
       await getArtistTopTracks(10, 10);
       expect(fetch).toHaveBeenCalledWith('https://api.deezer.com/artist/10/top?limit=10', expect.anything());
     });
@@ -135,7 +183,7 @@ describe('deezer service', () => {
 
   describe('getAlbum', () => {
     it('fetches /album/{id}', async () => {
-      vi.mocked(fetch).mockResolvedValue(mockOk(MOCK_ALBUM));
+      vi.mocked(fetch).mockResolvedValue(mockRestOk(MOCK_ALBUM));
       const album = await getAlbum(20);
       expect(fetch).toHaveBeenCalledWith('https://api.deezer.com/album/20', expect.anything());
       expect(album.title).toBe('Album');
@@ -144,7 +192,7 @@ describe('deezer service', () => {
 
   describe('getPlaylist', () => {
     it('fetches /playlist/{id}', async () => {
-      vi.mocked(fetch).mockResolvedValue(mockOk(MOCK_PLAYLIST));
+      vi.mocked(fetch).mockResolvedValue(mockRestOk(MOCK_PLAYLIST));
       const playlist = await getPlaylist(30);
       expect(fetch).toHaveBeenCalledWith('https://api.deezer.com/playlist/30', expect.anything());
       expect(playlist.title).toBe('Playlist');
@@ -153,9 +201,9 @@ describe('deezer service', () => {
 
   describe('searchDeezer', () => {
     it('builds correct URL for track search', async () => {
-      vi.mocked(fetch).mockResolvedValue(mockOk({ data: [MOCK_TRACK], total: 1 }));
+      vi.mocked(fetch).mockResolvedValue(mockRestOk({ data: [MOCK_TRACK], total: 1 }));
       const results = await searchDeezer('daft punk', 'track', 10);
-      const calledUrl = (vi.mocked(fetch).mock.calls[0][0] as string);
+      const calledUrl = vi.mocked(fetch).mock.calls[0][0] as string;
       expect(calledUrl).toContain('/search/track');
       expect(calledUrl).toContain('q=daft+punk');
       expect(calledUrl).toContain('limit=10');
@@ -163,9 +211,9 @@ describe('deezer service', () => {
     });
 
     it('defaults to type track and limit 25', async () => {
-      vi.mocked(fetch).mockResolvedValue(mockOk({ data: [], total: 0 }));
+      vi.mocked(fetch).mockResolvedValue(mockRestOk({ data: [], total: 0 }));
       await searchDeezer('test');
-      const calledUrl = (vi.mocked(fetch).mock.calls[0][0] as string);
+      const calledUrl = vi.mocked(fetch).mock.calls[0][0] as string;
       expect(calledUrl).toContain('/search/track');
       expect(calledUrl).toContain('limit=25');
     });
@@ -173,104 +221,158 @@ describe('deezer service', () => {
 
   describe('getTrackPreviewUrl', () => {
     it('returns preview URL', async () => {
-      vi.mocked(fetch).mockResolvedValue(mockOk(MOCK_TRACK));
+      vi.mocked(fetch).mockResolvedValue(mockRestOk(MOCK_TRACK));
       const url = await getTrackPreviewUrl(1);
       expect(url).toBe('https://cdns-preview.deezer.com/stream/test.mp3');
     });
 
     it('throws when no preview available', async () => {
       const { preview: _preview, ...trackNoPreview } = MOCK_TRACK;
-      vi.mocked(fetch).mockResolvedValue(mockOk(trackNoPreview));
+      vi.mocked(fetch).mockResolvedValue(mockRestOk(trackNoPreview));
       await expect(getTrackPreviewUrl(1)).rejects.toThrow('No preview available for track 1');
     });
   });
 
+  // ---------------------------------------------------------------------------
+  // Endpoints authentifiés (Pipe API pipe.deezer.com)
+  // ---------------------------------------------------------------------------
+
   describe('authenticated endpoints', () => {
-    it('getCurrentUser sends ARL cookie', async () => {
-      vi.mocked(fetch).mockResolvedValue(mockOk(MOCK_USER));
-      await getCurrentUser();
-      const headers = (vi.mocked(fetch).mock.calls[0][1] as RequestInit).headers as Record<string, string>;
-      expect(headers['Cookie']).toBe('arl=test-arl-token');
+    it('getCurrentUser acquires JWT and calls Pipe API', async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        mockPipeOk({ me: { id: '99', email: 'test@test.com', user: { id: '99', name: 'Test User' } } }),
+      );
+      const user = await getCurrentUser();
+      expect(getDeezerJwt).toHaveBeenCalled();
+      expect(fetch).toHaveBeenCalledWith(
+        PIPE_URL,
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ Authorization: 'Bearer mock-jwt-token' }),
+        }),
+      );
+      expect(user).toEqual({ id: '99', name: 'Test User', email: 'test@test.com' });
     });
 
     it('getCurrentUser throws when DEEZER_ARL not set', async () => {
-      vi.stubEnv('DEEZER_ARL', '');
+      vi.mocked(getDeezerJwt).mockRejectedValue(new Error('DEEZER_ARL not set'));
       await expect(getCurrentUser()).rejects.toThrow('DEEZER_ARL not set');
     });
 
-    it('getUserTracks sends ARL cookie', async () => {
-      vi.mocked(fetch).mockResolvedValue(mockOk({ data: [MOCK_TRACK], total: 1 }));
-      await getUserTracks();
-      const headers = (vi.mocked(fetch).mock.calls[0][1] as RequestInit).headers as Record<string, string>;
-      expect(headers['Cookie']).toBe('arl=test-arl-token');
+    it('getUserTracks returns mapped PipeTrack[]', async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        mockPipeOk({ me: { userFavorites: { tracks: { edges: [{ node: PIPE_TRACK_NODE }] } } } }),
+      );
+      const tracks = await getUserTracks(5);
+      expect(fetch).toHaveBeenCalledWith(PIPE_URL, expect.objectContaining({ method: 'POST' }));
+      expect(tracks).toHaveLength(1);
+      expect(tracks[0].id).toBe('1');
+      expect(tracks[0].title).toBe('Test Track');
+      expect(tracks[0].isrc).toBe('USTEST000001');
+      expect(tracks[0].artists).toEqual([{ id: '10', name: 'Artist' }]);
+      const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
+      expect(body.variables.first).toBe(5);
     });
 
-    it('getUserAlbums fetches /user/me/albums', async () => {
-      vi.mocked(fetch).mockResolvedValue(mockOk({ data: [MOCK_ALBUM], total: 1 }));
-      await getUserAlbums();
-      expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/user/me/albums'), expect.anything());
+    it('getUserAlbums returns mapped PipeAlbum[]', async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        mockPipeOk({ me: { userFavorites: { albums: { edges: [{ node: PIPE_ALBUM_NODE }] } } } }),
+      );
+      const albums = await getUserAlbums(5);
+      expect(albums).toHaveLength(1);
+      expect(albums[0].id).toBe('20');
+      expect(albums[0].displayTitle).toBe('Album');
+      expect(albums[0].contributors).toEqual([{ id: '10', name: 'Artist' }]);
     });
 
-    it('getUserArtists fetches /user/me/artists', async () => {
-      vi.mocked(fetch).mockResolvedValue(mockOk({ data: [MOCK_ARTIST], total: 1 }));
-      await getUserArtists();
-      expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/user/me/artists'), expect.anything());
+    it('getUserArtists returns mapped PipeFavoriteArtist[]', async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        mockPipeOk({ me: { userFavorites: { artists: { edges: [{ node: PIPE_ARTIST_NODE }] } } } }),
+      );
+      const artists = await getUserArtists(5);
+      expect(artists).toHaveLength(1);
+      expect(artists[0].id).toBe('10');
+      expect(artists[0].fansCount).toBe(1000);
     });
 
-    it('getUserPlaylists fetches /user/me/playlists', async () => {
-      vi.mocked(fetch).mockResolvedValue(mockOk({ data: [MOCK_PLAYLIST], total: 1 }));
-      await getUserPlaylists();
-      expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/user/me/playlists'), expect.anything());
+    it('getUserPlaylists returns mapped PipePlaylist[]', async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        mockPipeOk({ me: { userFavorites: { playlists: { edges: [{ node: PIPE_PLAYLIST_NODE }] } } } }),
+      );
+      const playlists = await getUserPlaylists(5);
+      expect(playlists).toHaveLength(1);
+      expect(playlists[0].id).toBe('30');
+      expect(playlists[0].owner).toEqual({ id: '99', name: 'Test User' });
     });
 
-    it('getUserLibrary fires 4 parallel authenticated requests to distinct endpoints', async () => {
-      vi.mocked(fetch).mockResolvedValue(mockOk({ data: [], total: 0 }));
-      await getUserLibrary();
+    it('getUserLibrary fires 4 parallel Pipe requests', async () => {
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(mockPipeOk({ me: { userFavorites: { tracks: { edges: [{ node: PIPE_TRACK_NODE }] } } } }))
+        .mockResolvedValueOnce(mockPipeOk({ me: { userFavorites: { albums: { edges: [{ node: PIPE_ALBUM_NODE }] } } } }))
+        .mockResolvedValueOnce(mockPipeOk({ me: { userFavorites: { artists: { edges: [{ node: PIPE_ARTIST_NODE }] } } } }))
+        .mockResolvedValueOnce(mockPipeOk({ me: { userFavorites: { playlists: { edges: [{ node: PIPE_PLAYLIST_NODE }] } } } }));
+
+      const library = await getUserLibrary();
+
       expect(fetch).toHaveBeenCalledTimes(4);
-      const urls = vi.mocked(fetch).mock.calls.map((call) => call[0] as string);
-      expect(urls).toEqual(expect.arrayContaining([
-        expect.stringContaining('/user/me/tracks'),
-        expect.stringContaining('/user/me/albums'),
-        expect.stringContaining('/user/me/artists'),
-        expect.stringContaining('/user/me/playlists'),
-      ]));
       for (const call of vi.mocked(fetch).mock.calls) {
+        expect(call[0]).toBe(PIPE_URL);
         const headers = (call[1] as RequestInit).headers as Record<string, string>;
-        expect(headers['Cookie']).toBe('arl=test-arl-token');
+        expect(headers['Authorization']).toBe('Bearer mock-jwt-token');
       }
+      expect(library.tracks).toHaveLength(1);
+      expect(library.albums).toHaveLength(1);
+      expect(library.artists).toHaveLength(1);
+      expect(library.playlists).toHaveLength(1);
     });
   });
 
+  // ---------------------------------------------------------------------------
+  // Gestion d'erreurs
+  // ---------------------------------------------------------------------------
+
   describe('error handling', () => {
-    it('throws on HTTP error', async () => {
+    it('throws on HTTP error (REST)', async () => {
       vi.mocked(fetch).mockResolvedValue(mockHttpError(500));
       await expect(getTrack(1)).rejects.toThrow('Deezer HTTP error: 500');
     });
 
-    it('throws and logs on ARL expiry (code 300)', async () => {
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      vi.mocked(fetch).mockResolvedValue(
-        mockOk({ error: { type: 'OAuthException', message: 'Invalid token', code: 300 } }),
-      );
-      await expect(getCurrentUser()).rejects.toThrow('Deezer auth error (300)');
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('ARL expired'));
-      consoleSpy.mockRestore();
+    it('throws on HTTP error (Pipe)', async () => {
+      vi.mocked(fetch).mockResolvedValue(mockHttpError(500));
+      await expect(getCurrentUser()).rejects.toThrow('Deezer Pipe HTTP error: 500');
     });
 
-    it('throws and logs on ARL expiry (code 700 DataException)', async () => {
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      vi.mocked(fetch).mockResolvedValue(
-        mockOk({ error: { type: 'DataException', message: 'Token invalid', code: 700 } }),
-      );
-      await expect(getCurrentUser()).rejects.toThrow('Deezer auth error (700)');
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('ARL expired'));
-      consoleSpy.mockRestore();
+    it('throws on GraphQL errors (Pipe)', async () => {
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ errors: [{ message: 'Unauthorized' }] }),
+      } as unknown as Response);
+      await expect(getCurrentUser()).rejects.toThrow('Deezer Pipe GraphQL error: Unauthorized');
     });
 
-    it('throws on generic Deezer API error', async () => {
+    it('throws on GraphQL errors with null message (Pipe)', async () => {
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ errors: [{ message: null }] }),
+      } as unknown as Response);
+      await expect(getCurrentUser()).rejects.toThrow('Deezer Pipe GraphQL error');
+    });
+
+    it('throws on malformed JSON from Pipe API', async () => {
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(new SyntaxError('Unexpected token')),
+      } as unknown as Response);
+      await expect(getCurrentUser()).rejects.toThrow('Deezer Pipe invalid JSON response');
+    });
+
+    it('throws on generic Deezer REST API error', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       vi.mocked(fetch).mockResolvedValue(
-        mockOk({ error: { type: 'DataException', message: 'Not found', code: 800 } }),
+        mockRestOk({ error: { type: 'DataException', message: 'Not found', code: 800 } }),
       );
       await expect(getTrack(999)).rejects.toThrow('Deezer error (800)');
       consoleSpy.mockRestore();
