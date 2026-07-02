@@ -1,28 +1,7 @@
 import { getPlaylist } from '../../services/deezer';
-import { DeezerPlaylist } from '../../types/deezer';
-import { mapTrack } from './track';
+import { mapPlaylist } from './mappers';
 
-/**
- * Mappe une playlist Deezer vers le format GraphQL.
- * @param {DeezerPlaylist} p Playlist Deezer brute.
- * @returns {object} Playlist au format GraphQL.
- */
-export function mapPlaylist(p: DeezerPlaylist) {
-  return {
-    id: String(p.id),
-    title: p.title,
-    description: p.description ?? null,
-    duration: p.duration ?? null,
-    public: p.public ?? null,
-    isLovedTrack: p.is_loved_track ?? null,
-    collaborative: p.collaborative ?? null,
-    fans: p.fans ?? null,
-    link: p.link ?? null,
-    picture: p.picture ?? null,
-    checksum: p.checksum ?? null,
-    tracks: p.tracks?.data.map(mapTrack) ?? null,
-  };
-}
+export { mapPlaylist };
 
 export const playlistResolvers = {
   Query: {
@@ -36,7 +15,8 @@ export const playlistResolvers = {
       try {
         const p = await getPlaylist(args.id);
         return mapPlaylist(p);
-      } catch {
+      } catch (err) {
+        console.error('[resolver] playlist error:', err);
         return null;
       }
     },

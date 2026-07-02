@@ -1,31 +1,7 @@
 import { getAlbum } from '../../services/deezer';
-import { DeezerAlbum } from '../../types/deezer';
-import { mapArtist } from './artist';
-import { mapTrack } from './track';
+import { mapAlbum } from './mappers';
 
-/**
- * Mappe un album Deezer vers le format GraphQL.
- * @param {DeezerAlbum} a Album Deezer brut.
- * @returns {object} Album au format GraphQL.
- */
-export function mapAlbum(a: DeezerAlbum) {
-  return {
-    id: String(a.id),
-    title: a.title,
-    upc: a.upc ?? null,
-    link: a.link ?? null,
-    cover: a.cover ?? null,
-    label: a.label ?? null,
-    nbTracks: a.nb_tracks ?? null,
-    duration: a.duration ?? null,
-    fans: a.fans ?? null,
-    releaseDate: a.release_date ?? null,
-    recordType: a.record_type ?? null,
-    explicitLyrics: a.explicit_lyrics ?? null,
-    artist: a.artist ? mapArtist(a.artist) : null,
-    tracks: a.tracks?.data.map(mapTrack) ?? null,
-  };
-}
+export { mapAlbum };
 
 export const albumResolvers = {
   Query: {
@@ -39,7 +15,8 @@ export const albumResolvers = {
       try {
         const a = await getAlbum(args.id);
         return mapAlbum(a);
-      } catch {
+      } catch (err) {
+        console.error('[resolver] album error:', err);
         return null;
       }
     },

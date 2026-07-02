@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mapTrack, trackResolvers } from './track';
-import type { DeezerAlbum, DeezerArtist, DeezerTrack } from '../../types/deezer';
+import type { DeezerAlbum, DeezerArtist, DeezerPlaylist, DeezerTrack } from '../../types/deezer';
 
 vi.mock('../../services/deezer', () => ({
   getTrack: vi.fn(),
@@ -150,5 +150,37 @@ describe('Query.search', () => {
     const result = await trackResolvers.Query.search(undefined, { query: 'discovery', type: 'ALBUM' });
     expect(result.albums).toHaveLength(1);
     expect(result.albums![0].title).toBe('Discovery');
+  });
+
+  it('returns mapped playlists when type is PLAYLIST', async () => {
+    const MOCK_PLAYLIST: DeezerPlaylist = {
+      id: 30,
+      title: 'Top Hits',
+      link: '',
+      tracklist: '',
+      type: 'playlist',
+    };
+    vi.mocked(searchDeezer).mockResolvedValue({ playlists: { data: [MOCK_PLAYLIST] } });
+    const result = await trackResolvers.Query.search(undefined, { query: 'top hits', type: 'PLAYLIST' });
+    expect(searchDeezer).toHaveBeenCalledWith('top hits', 'playlist', 25);
+    expect(result.playlists).toHaveLength(1);
+    expect(result.playlists![0].title).toBe('Top Hits');
+    expect(result.tracks).toBeNull();
+  });
+
+  it('returns empty arrays when searchDeezer returns empty data', async () => {
+    vi.mocked(searchDeezer).mockResolvedValue({ tracks: { data: [] } });
+    const result = await trackResolvers.Query.search(undefined, { query: 'nothing', type: 'TRACK' });
+    expect(result.tracks).toEqual([]);
+    expect(result.albums).toBeNull();
+  });
+
+  it('returns empty SearchResults when searchDeezer throws', async () => {
+    vi.mocked(searchDeezer).mockRejectedValue(new Error('Rate limited'));
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const result = await trackResolvers.Query.search(undefined, { query: 'test' });
+    expect(result).toEqual({ tracks: null, albums: null, artists: null, playlists: null });
+    expect(consoleSpy).toHaveBeenCalledWith('[resolver] search error:', expect.any(Error));
+    consoleSpy.mockRestore();
   });
 });

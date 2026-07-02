@@ -1,21 +1,7 @@
 import { getArtist } from '../../services/deezer';
-import { DeezerArtist } from '../../types/deezer';
+import { mapArtist } from './mappers';
 
-/**
- * Mappe un artiste Deezer vers le format GraphQL.
- * @param {DeezerArtist} a Artiste Deezer brut.
- * @returns {object} Artiste au format GraphQL.
- */
-export function mapArtist(a: DeezerArtist) {
-  return {
-    id: String(a.id),
-    name: a.name,
-    link: a.link ?? null,
-    picture: a.picture ?? null,
-    nbAlbum: a.nb_album ?? null,
-    nbFan: a.nb_fan ?? null,
-  };
-}
+export { mapArtist };
 
 export const artistResolvers = {
   Query: {
@@ -29,7 +15,8 @@ export const artistResolvers = {
       try {
         const a = await getArtist(args.id);
         return mapArtist(a);
-      } catch {
+      } catch (err) {
+        console.error('[resolver] artist error:', err);
         return null;
       }
     },
