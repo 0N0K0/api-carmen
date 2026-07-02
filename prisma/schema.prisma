@@ -5,3 +5,147 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+model Artist {
+  id      Int     @id
+  name    String
+  link    String?
+  // base URL — append ?size=small|medium|big|xl
+  picture String?
+  nbAlbum Int?
+  nbFan   Int?
+
+  albums Album[]
+  tracks Track[]
+}
+
+model Album {
+  id             Int      @id
+  title          String
+  upc            String?
+  link           String?
+  // base URL — append ?size=small|medium|big|xl
+  cover          String?
+  md5Image       String?
+  label          String?
+  nbTracks       Int?
+  duration       Int?
+  fans           Int?
+  releaseDate    String?
+  recordType     String?
+  explicitLyrics Boolean?
+
+  artistId Int
+  artist   Artist @relation(fields: [artistId], references: [id])
+
+  tracks Track[]
+}
+
+model Track {
+  // --- Deezer fields ---
+  id             Int      @id
+  title          String
+  titleShort     String?
+  titleVersion   String?
+  isrc           String?
+  link           String?
+  duration       Int
+  trackPosition  Int?
+  diskNumber     Int?
+  rank           Int?
+  releaseDate    String?
+  explicitLyrics Boolean?
+  preview        String?
+  // Deezer bpm/gain (from track object)
+  bpm            Float?
+  gain           Float?
+
+  artistId Int
+  artist   Artist @relation(fields: [artistId], references: [id])
+
+  albumId Int
+  album   Album  @relation(fields: [albumId], references: [id])
+
+  // --- freqblog audio features ---
+  fbBpm                        Float?
+  fbBpmAlt                     Float?
+  fbBpmConfidence              Float?
+  fbKey                        String?
+  fbKeyConfidence              Float?
+  fbKeyInt                     Int?
+  fbMode                       Int?
+  fbCamelot                    String?
+  fbOpenKey                    String?
+  fbEnergy                     Float?
+  fbLoudnessDb                 Float?
+  fbDanceability               Float?
+  fbValence                    Float?
+  fbSpeechiness                Float?
+  fbInstrumentalness           Float?
+  fbLiveness                   Float?
+  fbAcousticness               Float?
+  fbTimeSignature              Int?
+  fbMood                       String?
+  // { happy, sad, aggressive, relaxed, party }
+  fbMoodVector                 Json?
+  fbGenre                      String?
+  // { gender, timbre, tonal_atonal }
+  fbExtended                   Json?
+  fbFeatureSource              String?
+  fbRepresentativeSegmentStart Float?
+  fbOnsetRate                  Float?
+  fbDynamicComplexity          Float?
+  fbTuningFrequency            Float?
+  fbAverageLoudness            Float?
+
+  playlists      PlaylistTrack[]
+  historyEntries HistoryEntry[]
+}
+
+model Playlist {
+  id            Int      @id
+  title         String
+  description   String?
+  duration      Int?
+  public        Boolean?
+  isLovedTrack  Boolean?
+  collaborative Boolean?
+  fans          Int?
+  link          String?
+  // base URL — append ?size=small|medium|big|xl
+  picture       String?
+  checksum      String?
+
+  folderId Int?
+  folder   Folder? @relation(fields: [folderId], references: [id])
+
+  tracks PlaylistTrack[]
+}
+
+model PlaylistTrack {
+  playlistId Int
+  playlist   Playlist @relation(fields: [playlistId], references: [id])
+
+  trackId  Int
+  track    Track @relation(fields: [trackId], references: [id])
+
+  position Int
+  timeAdd  Int?
+
+  @@id([playlistId, trackId])
+}
+
+model Folder {
+  id   Int    @id @default(autoincrement())
+  name String
+
+  playlists Playlist[]
+}
+
+model HistoryEntry {
+  id       Int      @id @default(autoincrement())
+  playedAt DateTime @default(now())
+
+  trackId Int
+  track   Track @relation(fields: [trackId], references: [id])
+}
