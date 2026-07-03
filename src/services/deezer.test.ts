@@ -5,6 +5,7 @@ import {
   getArtistTopTracks,
   getCurrentUser,
   getPlaylist,
+  getStreamUrl,
   getTrack,
   getTrackPreviewUrl,
   getUserAlbums,
@@ -20,6 +21,11 @@ import { getDeezerJwt } from '../plugins/deezer-jwt';
 vi.mock('../plugins/deezer-jwt', () => ({
   getDeezerJwt: vi.fn(),
   resetDeezerJwt: vi.fn(),
+}));
+
+const mockRedis = { get: vi.fn(), set: vi.fn() };
+vi.mock('../plugins/redis', () => ({
+  getRedisClient: () => mockRedis,
 }));
 
 const PIPE_URL = 'https://pipe.deezer.com/api';
@@ -377,5 +383,103 @@ describe('deezer service', () => {
       await expect(getTrack(999)).rejects.toThrow('Deezer error (800)');
       consoleSpy.mockRestore();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getStreamUrl
+// ---------------------------------------------------------------------------
+
+describe('getStreamUrl', () => {
+  beforeEach(() => {
+    vi.stubEnv('DEEZER_ARL', 'test-arl-token');
+    vi.stubGlobal('fetch', vi.fn());
+    vi.mocked(getDeezerJwt).mockResolvedValue('mock-jwt-token');
+    mockRedis.get.mockResolvedValue(null);
+    mockRedis.set.mockResolvedValue('OK');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it('returns cached URL from Redis without calling Pipe API', async () => {
+    mockRedis.get.mockResolvedValue('https://cdn.deezer.com/cached.mp3');
+    const url = await getStreamUrl(123);
+    expect(url).toBe('https://cdn.deezer.com/cached.mp3');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('queries Pipe API on cache miss and caches result', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      mockPipeOk({
+        track: {
+          id: '123',
+          mediaList: [{ backUrl: 'https://cdn.deezer.com/stream.mp3', format: 'MP3_128', cipher: { type: 'NONE' } }],
+        },
+      }),
+    );
+    const url = await getStreamUrl(123);
+    expect(url).toBe('https://cdn.deezer.com/stream.mp3');
+    expect(mockRedis.set).toHaveBeenCalledWith('stream:123', 'https://cdn.deezer.com/stream.mp3', 'EX', 3600);
+  });
+
+  it('prefers non-encrypted stream over encrypted', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      mockPipeOk({
+        track: {
+          id: '123',
+          mediaList: [
+            { backUrl: 'https://cdn.deezer.com/encrypted.mp3', format: 'MP3_320', cipher: { type: 'BF_CBC_STRIPE' } },
+            { backUrl: 'https://cdn.deezer.com/direct.mp3', format: 'MP3_128', cipher: { type: 'NONE' } },
+          ],
+        },
+      }),
+    );
+    const url = await getStreamUrl(123);
+    expect(url).toBe('https://cdn.deezer.com/direct.mp3');
+  });
+
+  it('falls back to first backUrl when all streams are encrypted', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      mockPipeOk({
+        track: {
+          id: '123',
+          mediaList: [
+            { backUrl: 'https://cdn.deezer.com/enc1.mp3', format: 'MP3_320', cipher: { type: 'BF_CBC_STRIPE' } },
+          ],
+        },
+      }),
+    );
+    const url = await getStreamUrl(123);
+    expect(url).toBe('https://cdn.deezer.com/enc1.mp3');
+  });
+
+  it('throws when track not found', async () => {
+    vi.mocked(fetch).mockResolvedValue(mockPipeOk({ track: null }));
+    await expect(getStreamUrl(999)).rejects.toThrow('Track 999 not found');
+  });
+
+  it('throws when no backUrl in mediaList', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      mockPipeOk({ track: { id: '123', mediaList: [{ format: 'MP3_128', cipher: { type: 'NONE' } }] } }),
+    );
+    await expect(getStreamUrl(123)).rejects.toThrow('No stream URL available for track 123');
+  });
+
+  it('throws ARL expired error with explicit message', async () => {
+    vi.mocked(getDeezerJwt).mockRejectedValue(new Error('Deezer JWT auth returned invalid token'));
+    await expect(getStreamUrl(123)).rejects.toThrow('Deezer ARL expired — renew your ARL token');
+  });
+
+  it('throws quota exceeded error with explicit message', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ errors: [{ message: 'quota exceeded' }] }),
+    } as unknown as Response);
+    await expect(getStreamUrl(123)).rejects.toThrow('Deezer quota exceeded — try again later');
   });
 });

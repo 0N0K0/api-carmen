@@ -19,6 +19,7 @@ import {
   PipeUserLibrary,
 } from '../types/deezer-pipe';
 import { getDeezerJwt } from '../plugins/deezer-jwt';
+import { getRedisClient } from '../plugins/redis';
 
 const DEEZER_API = 'https://api.deezer.com';
 const RATE_LIMIT_MAX = 50;
@@ -466,4 +467,111 @@ export async function getTrackPreviewUrl(id: number | string): Promise<string> {
     throw new Error(`No preview available for track ${id}`);
   }
   return track.preview;
+}
+
+const STREAM_CACHE_TTL_SECONDS = 60 * 60; // 1h
+
+const Q_GET_TRACK_URL = `
+query GetTrackUrl($trackId: String!) {
+  track(trackId: $trackId) {
+    ... on Track {
+      id
+      mediaList {
+        ... on TrackStream {
+          backUrl
+          format
+          cipher { type }
+          trackToken
+          trackTokenExpiry
+        }
+        ... on TrackCryptedStream {
+          backUrl
+          format
+          cipher { type }
+          trackToken
+          trackTokenExpiry
+        }
+      }
+    }
+  }
+}`;
+
+type RawMediaItem = {
+  backUrl?: string | null;
+  format?: string | null;
+  cipher?: { type?: string | null } | null;
+};
+
+/**
+ * Détecte si l'erreur signale un ARL expiré ou invalide.
+ * @param {unknown} err Erreur capturée.
+ * @returns {boolean}
+ */
+function isArlExpiredError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return (
+    err.message.includes('JWT auth failed') ||
+    err.message.includes('invalid token') ||
+    err.message.includes('JWT auth returned invalid')
+  );
+}
+
+/**
+ * Résout l'URL de stream complète d'un track via la Pipe API Deezer. Nécessite `DEEZER_ARL`.
+ * L'URL est mise en cache Redis (clé : `stream:{trackId}`, TTL : 1 h).
+ * @param {number | string} trackId Identifiant Deezer du track.
+ * @returns {Promise<string>} URL CDN du stream.
+ * @throws {Error} Si l'ARL est expiré, le quota dépassé, ou aucune URL disponible.
+ */
+export async function getStreamUrl(trackId: number | string): Promise<string> {
+  const cacheKey = `stream:${trackId}`;
+
+  try {
+    const cached = await getRedisClient().get(cacheKey);
+    if (cached) return cached;
+  } catch {
+    // Redis non critique — on continue sans cache
+  }
+
+  let data: { track: { id: string; mediaList: RawMediaItem[] } | null };
+  try {
+    data = await pipeFetch<typeof data>(
+      Q_GET_TRACK_URL,
+      'GetTrackUrl',
+      { trackId: String(trackId) },
+    );
+  } catch (err) {
+    if (isArlExpiredError(err)) {
+      throw new Error('Deezer ARL expired — renew your ARL token');
+    }
+    if (err instanceof Error && /quota/i.test(err.message)) {
+      throw new Error('Deezer quota exceeded — try again later');
+    }
+    throw err;
+  }
+
+  if (!data.track) {
+    throw new Error(`Track ${trackId} not found`);
+  }
+
+  const mediaList = data.track.mediaList ?? [];
+
+  // Prefer non-encrypted stream; fall back to first with a backUrl
+  const media =
+    mediaList.find((m) => m.backUrl && (!m.cipher?.type || m.cipher.type === 'NONE')) ??
+    mediaList.find((m) => m.backUrl);
+
+  if (!media?.backUrl) {
+    throw new Error(`No stream URL available for track ${trackId}`);
+  }
+
+  const url = media.backUrl;
+
+  try {
+    await getRedisClient().set(cacheKey, url, 'EX', STREAM_CACHE_TTL_SECONDS);
+  } catch {
+    // Cache write non critique
+  }
+
+  return url;
 }

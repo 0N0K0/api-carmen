@@ -89,6 +89,10 @@ const typeDefs = /* GraphQL */ `
     playlist(id: ID!): Playlist
     search(query: String!, type: SearchType, limit: Int): SearchResults!
   }
+
+  type Mutation {
+    getStreamUrl(trackId: ID!): String!
+  }
 `;
 
 export const schema = createSchema({
@@ -99,6 +103,9 @@ export const schema = createSchema({
       ...artistResolvers.Query,
       ...albumResolvers.Query,
       ...playlistResolvers.Query,
+    },
+    Mutation: {
+      ...trackResolvers.Mutation,
     },
   },
 });
