@@ -8,6 +8,7 @@ vi.mock('../../services/deezer', () => ({
 
 const mockPrisma = {
   playlist: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn() },
+  playlistTrack: { findMany: vi.fn() },
 };
 vi.mock('../../plugins/prisma', () => ({
   getPrismaClient: () => mockPrisma,
@@ -106,18 +107,6 @@ describe('mapPlaylist', () => {
   });
 });
 
-const MOCK_DB_ARTIST = { id: 10, name: 'Artist', link: null, picture: null, nbAlbum: null, nbFan: null };
-const MOCK_DB_ALBUM = {
-  id: 20, title: 'Album', upc: null, link: null, cover: null, md5Image: null, label: null,
-  nbTracks: null, duration: null, fans: null, releaseDate: null, recordType: null,
-  explicitLyrics: null, artistId: 10, artist: MOCK_DB_ARTIST,
-};
-const MOCK_DB_TRACK = {
-  id: 1, title: 'Track One', titleShort: null, titleVersion: null, isrc: null, link: null,
-  duration: 200, trackPosition: null, diskNumber: null, rank: null, releaseDate: null,
-  explicitLyrics: null, preview: null, bpm: null, gain: null, artistId: 10, albumId: 20,
-  artist: MOCK_DB_ARTIST, album: MOCK_DB_ALBUM,
-};
 const MOCK_DB_PLAYLIST = {
   id: 30,
   title: 'My Playlist',
@@ -131,22 +120,17 @@ const MOCK_DB_PLAYLIST = {
   picture: 'https://api.deezer.com/playlist/30/image',
   checksum: 'abc123',
   folderId: null,
-  tracks: [{ playlistId: 30, trackId: 1, position: 1, timeAdd: null, track: MOCK_DB_TRACK }],
 };
 
 describe('Query.playlist', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('returns the playlist from DB without calling Deezer when found', async () => {
+  it('returns the raw DB row without calling Deezer when found', async () => {
     mockPrisma.playlist.findUnique.mockResolvedValue(MOCK_DB_PLAYLIST);
     const result = await playlistResolvers.Query.playlist(undefined, { id: '30' });
-    expect(mockPrisma.playlist.findUnique).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 30 } }),
-    );
+    expect(mockPrisma.playlist.findUnique).toHaveBeenCalledWith({ where: { id: 30 } });
     expect(getPlaylist).not.toHaveBeenCalled();
-    expect(result?.title).toBe('My Playlist');
-    expect(result?.tracks).toHaveLength(1);
-    expect(result?.tracks?.[0].title).toBe('Track One');
+    expect(result).toEqual(MOCK_DB_PLAYLIST);
   });
 
   it('falls back to Deezer when not found in DB', async () => {
@@ -192,5 +176,27 @@ describe('Query.playlists', () => {
     expect(mockPrisma.playlist.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ skip: 0, take: 20 }),
     );
+  });
+});
+
+describe('Playlist.tracks', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns parent.tracks directly when already resolved (Deezer fallback)', async () => {
+    const mappedPlaylist = mapPlaylist(MOCK_PLAYLIST);
+    const result = await playlistResolvers.Playlist.tracks(mappedPlaylist);
+    expect(mockPrisma.playlistTrack.findMany).not.toHaveBeenCalled();
+    expect(result).toBe(mappedPlaylist.tracks);
+  });
+
+  it('loads via PlaylistTrack ordered by position when not already resolved (DB row)', async () => {
+    mockPrisma.playlistTrack.findMany.mockResolvedValue([
+      { playlistId: 30, trackId: 1, position: 1, timeAdd: null, track: { id: 1, title: 'Track One' } },
+    ]);
+    const result = await playlistResolvers.Playlist.tracks(MOCK_DB_PLAYLIST);
+    expect(mockPrisma.playlistTrack.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { playlistId: 30 }, orderBy: { position: 'asc' } }),
+    );
+    expect(result).toEqual([{ id: 1, title: 'Track One' }]);
   });
 });

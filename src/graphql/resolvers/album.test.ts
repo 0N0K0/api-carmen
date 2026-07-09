@@ -8,6 +8,8 @@ vi.mock('../../services/deezer', () => ({
 
 const mockPrisma = {
   album: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn() },
+  artist: { findUnique: vi.fn() },
+  track: { findMany: vi.fn() },
 };
 vi.mock('../../plugins/prisma', () => ({
   getPrismaClient: () => mockPrisma,
@@ -119,44 +121,17 @@ const MOCK_DB_ALBUM = {
   recordType: null,
   explicitLyrics: null,
   artistId: 10,
-  artist: MOCK_DB_ARTIST,
-  tracks: [],
-};
-
-const MOCK_DB_TRACK_WITH_ALBUM = {
-  id: 1,
-  title: 'One More Time',
-  titleShort: null,
-  titleVersion: null,
-  isrc: null,
-  link: null,
-  duration: 320,
-  trackPosition: 1,
-  diskNumber: null,
-  rank: null,
-  releaseDate: null,
-  explicitLyrics: null,
-  preview: null,
-  bpm: null,
-  gain: null,
-  artistId: 10,
-  albumId: 20,
-  artist: MOCK_DB_ARTIST,
-  album: { ...MOCK_DB_ALBUM, tracks: undefined },
 };
 
 describe('Query.album', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('returns the album from DB without calling Deezer when found', async () => {
+  it('returns the raw DB row without calling Deezer when found', async () => {
     mockPrisma.album.findUnique.mockResolvedValue(MOCK_DB_ALBUM);
     const result = await albumResolvers.Query.album(undefined, { id: '20' });
-    expect(mockPrisma.album.findUnique).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 20 } }),
-    );
+    expect(mockPrisma.album.findUnique).toHaveBeenCalledWith({ where: { id: 20 } });
     expect(getAlbum).not.toHaveBeenCalled();
-    expect(result?.title).toBe('Discovery');
-    expect(result?.artist?.name).toBe('Daft Punk');
+    expect(result).toEqual(MOCK_DB_ALBUM);
   });
 
   it('falls back to Deezer when not found in DB', async () => {
@@ -173,16 +148,6 @@ describe('Query.album', () => {
     vi.mocked(getAlbum).mockRejectedValue(new Error('Not found'));
     const result = await albumResolvers.Query.album(undefined, { id: '999' });
     expect(result).toBeNull();
-  });
-
-  it('includes album on each nested track (Track.album is non-null in schema)', async () => {
-    mockPrisma.album.findUnique.mockResolvedValue({
-      ...MOCK_DB_ALBUM,
-      tracks: [MOCK_DB_TRACK_WITH_ALBUM],
-    });
-    const result = await albumResolvers.Query.album(undefined, { id: '20' });
-    expect(result?.tracks?.[0].album).not.toBeNull();
-    expect(result?.tracks?.[0].album?.title).toBe('Discovery');
   });
 });
 
@@ -212,5 +177,51 @@ describe('Query.albums', () => {
     expect(mockPrisma.album.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ skip: 0, take: 20 }),
     );
+  });
+});
+
+describe('Album.artist', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns parent.artist directly when already resolved (Deezer fallback)', async () => {
+    const mappedAlbum = mapAlbum(MOCK_ALBUM);
+    const result = await albumResolvers.Album.artist(mappedAlbum);
+    expect(mockPrisma.artist.findUnique).not.toHaveBeenCalled();
+    expect(result).toBe(mappedAlbum.artist);
+  });
+
+  it('loads from Prisma by artistId when not already resolved (DB row)', async () => {
+    mockPrisma.artist.findUnique.mockResolvedValue(MOCK_DB_ARTIST);
+    const result = await albumResolvers.Album.artist(MOCK_DB_ALBUM);
+    expect(mockPrisma.artist.findUnique).toHaveBeenCalledWith({ where: { id: 10 } });
+    expect(result).toBe(MOCK_DB_ARTIST);
+  });
+
+  it('returns null without querying Prisma when artistId is absent (Deezer album without artist)', async () => {
+    const { artist: _a, tracks: _t, ...minimal } = MOCK_ALBUM;
+    const mappedAlbum = mapAlbum(minimal as DeezerAlbum);
+    const result = await albumResolvers.Album.artist(mappedAlbum);
+    expect(mockPrisma.artist.findUnique).not.toHaveBeenCalled();
+    expect(result).toBeNull();
+  });
+});
+
+describe('Album.tracks', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns parent.tracks directly when already resolved (Deezer fallback)', async () => {
+    const mappedAlbum = mapAlbum(MOCK_ALBUM);
+    const result = await albumResolvers.Album.tracks(mappedAlbum);
+    expect(mockPrisma.track.findMany).not.toHaveBeenCalled();
+    expect(result).toBe(mappedAlbum.tracks);
+  });
+
+  it('loads from Prisma by albumId when not already resolved (DB row), enabling arbitrary query depth', async () => {
+    mockPrisma.track.findMany.mockResolvedValue([{ id: 1, title: 'One More Time' }]);
+    const result = await albumResolvers.Album.tracks(MOCK_DB_ALBUM);
+    expect(mockPrisma.track.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { albumId: 20 } }),
+    );
+    expect(result).toEqual([{ id: 1, title: 'One More Time' }]);
   });
 });

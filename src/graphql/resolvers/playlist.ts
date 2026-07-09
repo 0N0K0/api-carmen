@@ -1,16 +1,11 @@
 import { getPlaylist } from '../../services/deezer';
 import { getPrismaClient } from '../../plugins/prisma';
-import { mapPlaylist, mapPrismaPlaylist } from './mappers';
+import { mapPlaylist } from './mappers';
 import { paginate, parseDbId } from './pagination';
 
 export { mapPlaylist };
 
-const playlistInclude = {
-  tracks: {
-    orderBy: { position: 'asc' as const },
-    include: { track: { include: { artist: true, album: { include: { artist: true } } } } },
-  },
-};
+type PlaylistParent = { id: number | string; tracks?: unknown };
 
 export const playlistResolvers = {
   Query: {
@@ -18,17 +13,14 @@ export const playlistResolvers = {
      * Récupère une playlist : d'abord en DB, sinon fallback sur l'API Deezer.
      * @param {unknown} _ Parent (non utilisé).
      * @param {{ id: string }} args Arguments de la query.
-     * @returns {Promise<object | null>} Playlist mappée ou null si non trouvée.
+     * @returns {Promise<object | null>} Playlist (ligne Prisma brute ou playlist Deezer mappée), ou null si non trouvée.
      */
     playlist: async (_: unknown, args: { id: string }) => {
       try {
         const dbId = parseDbId(args.id);
         if (dbId !== null) {
-          const row = await getPrismaClient().playlist.findUnique({
-            where: { id: dbId },
-            include: playlistInclude,
-          });
-          if (row) return mapPrismaPlaylist(row);
+          const row = await getPrismaClient().playlist.findUnique({ where: { id: dbId } });
+          if (row) return row;
         }
         const p = await getPlaylist(args.id);
         return mapPlaylist(p);
@@ -48,10 +40,27 @@ export const playlistResolvers = {
       const prisma = getPrismaClient();
       return paginate(
         args,
-        (limit, offset) =>
-          prisma.playlist.findMany({ skip: offset, take: limit, include: playlistInclude, orderBy: { id: 'asc' } }),
+        (limit, offset) => prisma.playlist.findMany({ skip: offset, take: limit, orderBy: { id: 'asc' } }),
         () => prisma.playlist.count(),
       );
+    },
+  },
+
+  Playlist: {
+    /**
+     * Résout les tracks d'une playlist : déjà présents (résultat Deezer) sinon chargés depuis
+     * Prisma via `PlaylistTrack`, triés par position, quelle que soit la profondeur de la requête.
+     * @param {PlaylistParent} parent Playlist parent (ligne Prisma ou playlist Deezer mappée).
+     * @returns {Promise<unknown>} Tracks de la playlist.
+     */
+    tracks: async (parent: PlaylistParent) => {
+      if ('tracks' in parent) return parent.tracks;
+      const rows = await getPrismaClient().playlistTrack.findMany({
+        where: { playlistId: Number(parent.id) },
+        orderBy: { position: 'asc' },
+        include: { track: true },
+      });
+      return rows.map((pt) => pt.track);
     },
   },
 };

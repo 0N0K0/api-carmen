@@ -1,6 +1,6 @@
 import { getArtist } from '../../services/deezer';
 import { getPrismaClient } from '../../plugins/prisma';
-import { mapArtist, mapPrismaArtist } from './mappers';
+import { mapArtist } from './mappers';
 import { paginate, parseDbId } from './pagination';
 
 export { mapArtist };
@@ -18,7 +18,7 @@ export const artistResolvers = {
         const dbId = parseDbId(args.id);
         if (dbId !== null) {
           const row = await getPrismaClient().artist.findUnique({ where: { id: dbId } });
-          if (row) return mapPrismaArtist(row);
+          if (row) return row;
         }
         const a = await getArtist(args.id);
         return mapArtist(a);

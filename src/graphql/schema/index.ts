@@ -142,5 +142,8 @@ export const schema = createSchema({
       ...trackResolvers.Mutation,
       ...syncResolvers.Mutation,
     },
+    Track: trackResolvers.Track,
+    Album: albumResolvers.Album,
+    Playlist: playlistResolvers.Playlist,
   },
 });

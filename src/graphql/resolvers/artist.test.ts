@@ -79,7 +79,7 @@ describe('Query.artist', () => {
     expect(mockPrisma.artist.findUnique).toHaveBeenCalledWith({ where: { id: 10 } });
     expect(getArtist).not.toHaveBeenCalled();
     expect(result?.name).toBe('Daft Punk');
-    expect(result?.id).toBe('10');
+    expect(result).toEqual(MOCK_DB_ARTIST);
   });
 
   it('falls back to Deezer when not found in DB', async () => {
