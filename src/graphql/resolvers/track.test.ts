@@ -4,10 +4,11 @@ import type { DeezerAlbum, DeezerArtist, DeezerPlaylist, DeezerTrack } from '../
 
 vi.mock('../../services/deezer', () => ({
   getTrack: vi.fn(),
+  getStreamUrl: vi.fn(),
   searchDeezer: vi.fn(),
 }));
 
-import { getTrack, searchDeezer } from '../../services/deezer';
+import { getTrack, getStreamUrl, searchDeezer } from '../../services/deezer';
 
 const MOCK_ARTIST: DeezerArtist = {
   id: 10,
@@ -53,6 +54,24 @@ const MOCK_TRACK: DeezerTrack = {
   album: MOCK_ALBUM,
   type: 'track',
 };
+
+describe('Mutation.getStreamUrl', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns stream URL from service', async () => {
+    vi.mocked(getStreamUrl).mockResolvedValue('https://cdn.deezer.com/stream.mp3');
+    const result = await trackResolvers.Mutation.getStreamUrl(undefined, { trackId: '123' });
+    expect(getStreamUrl).toHaveBeenCalledWith('123');
+    expect(result).toBe('https://cdn.deezer.com/stream.mp3');
+  });
+
+  it('propagates service errors (ARL expired, quota, etc.)', async () => {
+    vi.mocked(getStreamUrl).mockRejectedValue(new Error('Deezer ARL expired — renew your ARL token'));
+    await expect(trackResolvers.Mutation.getStreamUrl(undefined, { trackId: '123' })).rejects.toThrow(
+      'Deezer ARL expired — renew your ARL token',
+    );
+  });
+});
 
 describe('mapTrack', () => {
   it('maps all fields', () => {

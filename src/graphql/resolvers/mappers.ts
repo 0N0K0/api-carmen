@@ -1,3 +1,4 @@
+import type { Artist, Album, Track, PlaylistTrack, Playlist } from '@prisma/client';
 import { DeezerAlbum, DeezerArtist, DeezerPlaylist, DeezerTrack } from '../../types/deezer';
 
 /**
@@ -99,5 +100,119 @@ export function mapPlaylist(p: DeezerPlaylist) {
     picture: p.picture ?? null,
     checksum: p.checksum ?? null,
     tracks: p.tracks?.data.map(mapTrack) ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Mappers Prisma → GraphQL
+// ---------------------------------------------------------------------------
+
+type PrismaArtistShape = Artist;
+type PrismaAlbumShape = Album & { artist?: Artist | null; tracks?: PrismaTrackShape[] };
+type PrismaTrackShape = Track & { artist?: Artist | null; album?: PrismaAlbumShape | null };
+type PrismaPlaylistShape = Playlist & {
+  tracks?: (PlaylistTrack & { track: PrismaTrackShape })[];
+};
+
+type GqlArtist = {
+  id: string; name: string; link: string | null; picture: string | null;
+  nbAlbum: number | null; nbFan: number | null;
+};
+type GqlTrack = {
+  id: string; title: string; titleShort: string | null; isrc: string | null;
+  link: string | null; duration: number; rank: number | null; releaseDate: string | null;
+  explicitLyrics: boolean | null; preview: string | null; bpm: number | null;
+  gain: number | null; artist: GqlArtist | null; album: GqlAlbum | null;
+};
+type GqlAlbum = {
+  id: string; title: string; upc: string | null; link: string | null; cover: string | null;
+  label: string | null; nbTracks: number | null; duration: number | null; fans: number | null;
+  releaseDate: string | null; recordType: string | null; explicitLyrics: boolean | null;
+  artist: GqlArtist | null; tracks: GqlTrack[] | null;
+};
+
+/**
+ * Mappe un artiste Prisma vers le format GraphQL.
+ * @param {PrismaArtistShape} a Artiste Prisma.
+ * @returns {object} Artiste au format GraphQL.
+ */
+export function mapPrismaArtist(a: PrismaArtistShape): GqlArtist {
+  return {
+    id: String(a.id),
+    name: a.name,
+    link: a.link,
+    picture: a.picture,
+    nbAlbum: a.nbAlbum,
+    nbFan: a.nbFan,
+  };
+}
+
+/**
+ * Mappe un track Prisma vers le format GraphQL.
+ * @param {PrismaTrackShape} t Track Prisma (avec artist et album optionnels).
+ * @returns {object} Track au format GraphQL.
+ */
+export function mapPrismaTrack(t: PrismaTrackShape): GqlTrack {
+  return {
+    id: String(t.id),
+    title: t.title,
+    titleShort: t.titleShort,
+    isrc: t.isrc,
+    link: t.link,
+    duration: t.duration,
+    rank: t.rank,
+    releaseDate: t.releaseDate,
+    explicitLyrics: t.explicitLyrics,
+    preview: t.preview,
+    bpm: t.bpm,
+    gain: t.gain,
+    artist: t.artist ? mapPrismaArtist(t.artist) : null,
+    album: t.album ? mapPrismaAlbum(t.album) : null,
+  };
+}
+
+/**
+ * Mappe un album Prisma vers le format GraphQL.
+ * @param {PrismaAlbumShape} a Album Prisma (avec artist et tracks optionnels).
+ * @returns {object} Album au format GraphQL.
+ */
+export function mapPrismaAlbum(a: PrismaAlbumShape): GqlAlbum {
+  return {
+    id: String(a.id),
+    title: a.title,
+    upc: a.upc,
+    link: a.link,
+    cover: a.cover,
+    label: a.label,
+    nbTracks: a.nbTracks,
+    duration: a.duration,
+    fans: a.fans,
+    releaseDate: a.releaseDate,
+    recordType: a.recordType,
+    explicitLyrics: a.explicitLyrics,
+    artist: a.artist ? mapPrismaArtist(a.artist) : null,
+    tracks: a.tracks?.map(mapPrismaTrack) ?? null,
+  };
+}
+
+/**
+ * Mappe une playlist Prisma vers le format GraphQL.
+ * @param {PrismaPlaylistShape} p Playlist Prisma (avec tracks optionnels via PlaylistTrack).
+ * @returns {object} Playlist au format GraphQL.
+ */
+export function mapPrismaPlaylist(p: PrismaPlaylistShape) {
+  return {
+    id: String(p.id),
+    title: p.title,
+    description: p.description,
+    duration: p.duration,
+    public: p.public,
+    isLovedTrack: p.isLovedTrack,
+    collaborative: p.collaborative,
+    fans: p.fans,
+    link: p.link,
+    picture: p.picture,
+    checksum: p.checksum,
+    tracks: p.tracks?.map((pt) => mapPrismaTrack(pt.track)) ?? null,
   };
 }

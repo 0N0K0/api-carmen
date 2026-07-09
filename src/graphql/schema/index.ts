@@ -3,6 +3,7 @@ import { artistResolvers } from '../resolvers/artist';
 import { albumResolvers } from '../resolvers/album';
 import { trackResolvers } from '../resolvers/track';
 import { playlistResolvers } from '../resolvers/playlist';
+import { syncResolvers } from '../resolvers/sync';
 
 const typeDefs = /* GraphQL */ `
   type Artist {
@@ -89,6 +90,13 @@ const typeDefs = /* GraphQL */ `
     playlist(id: ID!): Playlist
     search(query: String!, type: SearchType, limit: Int): SearchResults!
   }
+
+  type Mutation {
+    getStreamUrl(trackId: ID!): String!
+    syncPlaylist(deezerId: ID!): Playlist!
+    syncAlbum(deezerId: ID!): Album!
+    syncArtist(deezerId: ID!, limit: Int): Artist!
+  }
 `;
 
 export const schema = createSchema({
@@ -99,6 +107,10 @@ export const schema = createSchema({
       ...artistResolvers.Query,
       ...albumResolvers.Query,
       ...playlistResolvers.Query,
+    },
+    Mutation: {
+      ...trackResolvers.Mutation,
+      ...syncResolvers.Mutation,
     },
   },
 });

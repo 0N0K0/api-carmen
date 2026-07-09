@@ -1,9 +1,22 @@
-import { getTrack, searchDeezer } from '../../services/deezer';
+import { getTrack, getStreamUrl, searchDeezer } from '../../services/deezer';
 import { mapTrack, mapAlbum, mapArtist, mapPlaylist } from './mappers';
 
 export { mapTrack };
 
 export const trackResolvers = {
+  Mutation: {
+    /**
+     * Résout l'URL de stream complète d'un track Deezer via l'ARL.
+     * @param {unknown} _ Parent (non utilisé).
+     * @param {{ trackId: string }} args Arguments de la mutation.
+     * @returns {Promise<string>} URL de stream CDN.
+     * @throws {Error} Si l'ARL est expiré, le quota dépassé, ou aucune URL disponible.
+     */
+    getStreamUrl: async (_: unknown, args: { trackId: string }) => {
+      return getStreamUrl(args.trackId);
+    },
+  },
+
   Query: {
     /**
      * Récupère un track par son identifiant Deezer.
