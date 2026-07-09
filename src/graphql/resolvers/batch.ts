@@ -1,6 +1,27 @@
 type Waiter<V> = { resolve: (v: V) => void; reject: (e: unknown) => void };
 
 /**
+ * Ré-essaie clé par clé après l'échec d'un batch, pour qu'une seule clé en tort
+ * n'entraîne pas le rejet des autres appelants du même tick (requêtes concurrentes
+ * non liées incluses, le batcher étant partagé au niveau du module).
+ * @param {Map<K, Waiter<R>[]>} batch Batch ayant échoué, clé -> appelants en attente.
+ * @param {(key: K) => Promise<R>} resolveOne Résout une seule clé (fallback individuel).
+ * @returns {Promise<void>} Résolu une fois tous les appelants notifiés (succès ou échec individuel).
+ */
+async function retryIndividually<K, R>(batch: Map<K, Waiter<R>[]>, resolveOne: (key: K) => Promise<R>) {
+  await Promise.all(
+    [...batch].map(async ([key, waiters]) => {
+      try {
+        const value = await resolveOne(key);
+        for (const w of waiters) w.resolve(value);
+      } catch (err) {
+        for (const w of waiters) w.reject(err);
+      }
+    }),
+  );
+}
+
+/**
  * Regroupe les appels concurrents faits dans le même tick en une seule requête,
  * puis répartit le résultat (une valeur par clé) à chaque appelant.
  * @param {(keys: K[]) => Promise<V[]>} fetchMany Requête batch (ex: findMany where id in [...]).
@@ -24,9 +45,12 @@ export function createBatcher<K, V>(
           for (const w of waiters) w.resolve(value);
         }
       })
-      .catch((err) => {
-        for (const waiters of batch.values()) for (const w of waiters) w.reject(err);
-      });
+      .catch(() =>
+        retryIndividually(batch, async (key) => {
+          const values = await fetchMany([key]);
+          return values.find((v) => keyOf(v) === key) ?? null;
+        }),
+      );
   }
 
   return (key: K) =>
@@ -71,9 +95,9 @@ export function createGroupBatcher<K, V>(
           for (const w of waiters) w.resolve(arr);
         }
       })
-      .catch((err) => {
-        for (const waiters of batch.values()) for (const w of waiters) w.reject(err);
-      });
+      .catch(() =>
+        retryIndividually(batch, (key) => fetchMany([key])),
+      );
   }
 
   return (key: K) =>

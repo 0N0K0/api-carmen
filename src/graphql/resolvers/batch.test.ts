@@ -45,11 +45,26 @@ describe('createBatcher', () => {
     expect(fetchMany).toHaveBeenCalledTimes(2);
   });
 
-  it('rejects all waiters in the batch when fetchMany fails', async () => {
+  it('rejects every waiter when fetchMany fails for every key individually too', async () => {
     const fetchMany = vi.fn().mockRejectedValue(new Error('DB down'));
     const load = createBatcher(fetchMany, (v: { id: number }) => v.id);
 
     await expect(Promise.all([load(1), load(2)])).rejects.toThrow('DB down');
+  });
+
+  it('isolates a single bad key: retries individually on batch failure so unrelated keys still resolve', async () => {
+    const fetchMany = vi.fn().mockImplementation((keys: number[]) => {
+      if (keys.length > 1) return Promise.reject(new Error('invalid key in batch'));
+      if (keys[0] === 666) return Promise.reject(new Error('key 666 is cursed'));
+      return Promise.resolve([{ id: keys[0], name: `item-${keys[0]}` }]);
+    });
+    const load = createBatcher(fetchMany, (v: { id: number }) => v.id);
+
+    const [good, bad] = await Promise.allSettled([load(1), load(666)]);
+
+    expect(good).toEqual({ status: 'fulfilled', value: { id: 1, name: 'item-1' } });
+    expect(bad.status).toBe('rejected');
+    expect((bad as PromiseRejectedResult).reason.message).toBe('key 666 is cursed');
   });
 });
 

@@ -6,7 +6,7 @@ import { loadArtistById, loadTracksByAlbumId } from './loaders';
 
 export { mapAlbum };
 
-type AlbumParent = { id: number | string; artistId?: number | null; artist?: unknown; tracks?: unknown };
+type AlbumParent = { id: number | string; artistId?: number; artist?: unknown; tracks?: unknown };
 
 export const albumResolvers = {
   Query: {
@@ -49,15 +49,15 @@ export const albumResolvers = {
 
   Album: {
     /**
-     * Résout l'artiste d'un album : déjà présent (résultat Deezer) sinon chargé depuis Prisma
-     * par `artistId`, quelle que soit la profondeur de la requête GraphQL.
+     * Résout l'artiste d'un album : déjà présent (résultat Deezer, y compris null si l'album
+     * Deezer n'en a pas) sinon chargé depuis Prisma par `artistId` (toujours renseigné en DB),
+     * quelle que soit la profondeur de la requête GraphQL.
      * @param {AlbumParent} parent Album parent (ligne Prisma ou album Deezer mappé).
-     * @returns {Promise<unknown>} Artiste, ou null si l'album n'en a pas.
+     * @returns {Promise<unknown>} Artiste.
      */
     artist: async (parent: AlbumParent) => {
       if ('artist' in parent) return parent.artist;
-      if (parent.artistId == null) return null;
-      return loadArtistById(parent.artistId);
+      return loadArtistById(parent.artistId as number);
     },
 
     /**
