@@ -6,6 +6,13 @@ vi.mock('../../services/deezer', () => ({
   getArtist: vi.fn(),
 }));
 
+const mockPrisma = {
+  artist: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn() },
+};
+vi.mock('../../plugins/prisma', () => ({
+  getPrismaClient: () => mockPrisma,
+}));
+
 import { getArtist } from '../../services/deezer';
 
 const MOCK_ARTIST: DeezerArtist = {
@@ -54,20 +61,68 @@ describe('mapArtist', () => {
   });
 });
 
+const MOCK_DB_ARTIST = {
+  id: 10,
+  name: 'Daft Punk',
+  link: 'https://www.deezer.com/artist/10',
+  picture: 'https://api.deezer.com/artist/10/image',
+  nbAlbum: 8,
+  nbFan: 5000000,
+};
+
 describe('Query.artist', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('calls getArtist with the given id and returns mapped artist', async () => {
+  it('returns the artist from DB without calling Deezer when found', async () => {
+    mockPrisma.artist.findUnique.mockResolvedValue(MOCK_DB_ARTIST);
+    const result = await artistResolvers.Query.artist(undefined, { id: '10' });
+    expect(mockPrisma.artist.findUnique).toHaveBeenCalledWith({ where: { id: 10 } });
+    expect(getArtist).not.toHaveBeenCalled();
+    expect(result?.name).toBe('Daft Punk');
+    expect(result).toEqual(MOCK_DB_ARTIST);
+  });
+
+  it('falls back to Deezer when not found in DB', async () => {
+    mockPrisma.artist.findUnique.mockResolvedValue(null);
     vi.mocked(getArtist).mockResolvedValue(MOCK_ARTIST);
     const result = await artistResolvers.Query.artist(undefined, { id: '10' });
     expect(getArtist).toHaveBeenCalledWith('10');
     expect(result?.name).toBe('Daft Punk');
-    expect(result?.id).toBe('10');
   });
 
-  it('returns null when service throws', async () => {
+  it('returns null when both DB and Deezer fail', async () => {
+    mockPrisma.artist.findUnique.mockResolvedValue(null);
     vi.mocked(getArtist).mockRejectedValue(new Error('Not found'));
     const result = await artistResolvers.Query.artist(undefined, { id: '999' });
     expect(result).toBeNull();
+  });
+});
+
+describe('Query.artists', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns paginated artists from DB', async () => {
+    mockPrisma.artist.findMany.mockResolvedValue([MOCK_DB_ARTIST]);
+    mockPrisma.artist.count.mockResolvedValue(1);
+
+    const result = await artistResolvers.Query.artists(undefined, { limit: 10, offset: 0 });
+
+    expect(mockPrisma.artist.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 0, take: 10 }),
+    );
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].name).toBe('Daft Punk');
+    expect(result.pagination).toEqual({ offset: 0, limit: 10, total: 1 });
+  });
+
+  it('defaults limit and offset when not provided', async () => {
+    mockPrisma.artist.findMany.mockResolvedValue([]);
+    mockPrisma.artist.count.mockResolvedValue(0);
+
+    await artistResolvers.Query.artists(undefined, {});
+
+    expect(mockPrisma.artist.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 0, take: 20 }),
+    );
   });
 });
