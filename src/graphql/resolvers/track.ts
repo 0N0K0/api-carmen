@@ -1,7 +1,10 @@
 import { getTrack, getStreamUrl, searchDeezer } from '../../services/deezer';
-import { mapTrack, mapAlbum, mapArtist, mapPlaylist } from './mappers';
+import { getPrismaClient } from '../../plugins/prisma';
+import { mapTrack, mapAlbum, mapArtist, mapPlaylist, mapPrismaTrack } from './mappers';
 
 export { mapTrack };
+
+const trackInclude = { artist: true, album: { include: { artist: true } } };
 
 export const trackResolvers = {
   Mutation: {
@@ -19,19 +22,49 @@ export const trackResolvers = {
 
   Query: {
     /**
-     * Récupère un track par son identifiant Deezer.
+     * Récupère un track : d'abord en DB, sinon fallback sur l'API Deezer.
      * @param {unknown} _ Parent (non utilisé).
      * @param {{ id: string }} args Arguments de la query.
      * @returns {Promise<object | null>} Track mappé ou null si non trouvé.
      */
     track: async (_: unknown, args: { id: string }) => {
       try {
+        const dbId = Number(args.id);
+        if (!Number.isNaN(dbId)) {
+          const row = await getPrismaClient().track.findUnique({
+            where: { id: dbId },
+            include: trackInclude,
+          });
+          if (row) return mapPrismaTrack(row);
+        }
         const t = await getTrack(args.id);
         return mapTrack(t);
       } catch (err) {
         console.error('[resolver] track error:', err);
         return null;
       }
+    },
+
+    /**
+     * Liste les tracks synchronisés en DB, paginés.
+     * @param {unknown} _ Parent (non utilisé).
+     * @param {{ limit?: number; offset?: number }} args Arguments de pagination.
+     * @returns {Promise<object>} Page de tracks avec pagination.
+     */
+    tracks: async (_: unknown, args: { limit?: number; offset?: number }) => {
+      const limit = args.limit ?? 20;
+      const offset = args.offset ?? 0;
+      const prisma = getPrismaClient();
+      const [rows, total] = await Promise.all([
+        prisma.track.findMany({
+          skip: offset,
+          take: limit,
+          include: trackInclude,
+          orderBy: { id: 'asc' },
+        }),
+        prisma.track.count(),
+      ]);
+      return { items: rows.map(mapPrismaTrack), pagination: { offset, limit, total } };
     },
 
     /**
