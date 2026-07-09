@@ -75,19 +75,29 @@ describe('createBatcher', () => {
     expect(fetchMany).toHaveBeenCalledTimes(1);
   });
 
-  it('fails fast on likely-systemic failure: if the first retried key also fails, rejects the rest without calling fetchMany for each', async () => {
-    let individualCalls = 0;
+  it('does not let a bad key that happens to retry first reject other, valid keys', async () => {
     const fetchMany = vi.fn().mockImplementation((keys: number[]) => {
-      if (keys.length > 1) return Promise.reject(new Error('connection reset'));
-      individualCalls += 1;
-      return Promise.reject(new Error('connection reset'));
+      if (keys.length > 1) return Promise.reject(new Error('invalid key in batch'));
+      if (keys[0] === 1) return Promise.reject(new Error('key 1 is cursed'));
+      return Promise.resolve([{ id: keys[0], name: `item-${keys[0]}` }]);
     });
+    const load = createBatcher(fetchMany, (v: { id: number }) => v.id);
+
+    const [bad, good2, good3] = await Promise.allSettled([load(1), load(2), load(3)]);
+
+    expect(bad.status).toBe('rejected');
+    expect(good2).toEqual({ status: 'fulfilled', value: { id: 2, name: 'item-2' } });
+    expect(good3).toEqual({ status: 'fulfilled', value: { id: 3, name: 'item-3' } });
+  });
+
+  it('retries every remaining key individually on a genuinely systemic failure (accepted cost)', async () => {
+    const fetchMany = vi.fn().mockRejectedValue(new Error('connection reset'));
     const load = createBatcher(fetchMany, (v: { id: number }) => v.id);
 
     const results = await Promise.allSettled([load(1), load(2), load(3)]);
 
     expect(results.every((r) => r.status === 'rejected')).toBe(true);
-    expect(individualCalls).toBe(1);
+    expect(fetchMany).toHaveBeenCalledTimes(4);
   });
 });
 

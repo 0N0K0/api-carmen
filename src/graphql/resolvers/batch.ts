@@ -9,12 +9,12 @@ function rejectAll<R>(waiterLists: Iterable<Waiter<R>[]>, err: unknown) {
  * n'entraîne pas le rejet des autres appelants du même tick (requêtes concurrentes
  * non liées incluses, le batcher étant partagé au niveau du module).
  *
- * Sonde d'abord la première clé seule : si elle échoue aussi, la panne est probablement
- * systémique (DB down) plutôt que liée à une clé précise — on rejette tout de suite au
- * lieu de marteler la DB avec un appel individuel par clé restante.
- *
  * Si le batch ne contenait qu'une seule clé, refaire le même appel donnerait le même
  * résultat : on rejette directement avec l'erreur d'origine, sans nouvel appel.
+ *
+ * Chaque clé restante est réessayée indépendamment (pas de heuristique "1re clé témoin" :
+ * une clé foireuse qui arrive en premier ne doit pas faire rejeter les clés valides qui
+ * suivent). Coût accepté : une vraie panne systémique déclenche un appel par clé restante.
  * @param {Map<K, Waiter<R>[]>} batch Batch ayant échoué, clé -> appelants en attente.
  * @param {(key: K) => Promise<R>} resolveOne Résout une seule clé (fallback individuel).
  * @param {unknown} originalErr Erreur du batch d'origine (réutilisée si batch.size === 1).
@@ -25,29 +25,13 @@ async function retryIndividually<K, R>(
   resolveOne: (key: K) => Promise<R>,
   originalErr: unknown,
 ) {
-  const entries = [...batch];
-
-  if (entries.length <= 1) {
-    if (entries.length === 1) rejectAll([entries[0][1]], originalErr);
+  if (batch.size <= 1) {
+    if (batch.size === 1) rejectAll([[...batch.values()][0]], originalErr);
     return;
   }
-
-  const [firstKey, firstWaiters] = entries[0];
-  let firstValue: R;
-  try {
-    firstValue = await resolveOne(firstKey);
-  } catch (err) {
-    // la 1re clé échoue aussi seule : panne probablement systémique, on arrête là.
-    rejectAll(
-      entries.map(([, waiters]) => waiters),
-      err,
-    );
-    return;
-  }
-  for (const w of firstWaiters) w.resolve(firstValue);
 
   await Promise.all(
-    entries.slice(1).map(async ([key, waiters]) => {
+    [...batch].map(async ([key, waiters]) => {
       try {
         const value = await resolveOne(key);
         for (const w of waiters) w.resolve(value);
