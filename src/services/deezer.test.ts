@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+  deezerFetchAll,
   getAlbum,
   getArtist,
   getArtistTopTracks,
@@ -202,6 +203,60 @@ describe('deezer service', () => {
       const playlist = await getPlaylist(30);
       expect(fetch).toHaveBeenCalledWith('https://api.deezer.com/playlist/30', expect.anything());
       expect(playlist.title).toBe('Playlist');
+    });
+  });
+
+  describe('deezerFetchAll', () => {
+    it('returns all items from a single page when there is no next', async () => {
+      vi.mocked(fetch).mockResolvedValue(mockRestOk({ data: [MOCK_TRACK], total: 1 }));
+      const items = await deezerFetchAll<DeezerTrack>('/playlist/30/tracks');
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(items).toEqual([MOCK_TRACK]);
+    });
+
+    it('follows next across multiple pages and concatenates items in order', async () => {
+      const TRACK_2 = { ...MOCK_TRACK, id: 2 };
+      const TRACK_3 = { ...MOCK_TRACK, id: 3 };
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(
+          mockRestOk({ data: [MOCK_TRACK], total: 3, next: 'https://api.deezer.com/playlist/30/tracks?index=1' }),
+        )
+        .mockResolvedValueOnce(
+          mockRestOk({ data: [TRACK_2], total: 3, next: 'https://api.deezer.com/playlist/30/tracks?index=2' }),
+        )
+        .mockResolvedValueOnce(mockRestOk({ data: [TRACK_3], total: 3 }));
+
+      const items = await deezerFetchAll<DeezerTrack>('/playlist/30/tracks');
+
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(fetch).toHaveBeenNthCalledWith(1, 'https://api.deezer.com/playlist/30/tracks', expect.anything());
+      expect(fetch).toHaveBeenNthCalledWith(
+        2,
+        'https://api.deezer.com/playlist/30/tracks?index=1',
+        expect.anything(),
+      );
+      expect(fetch).toHaveBeenNthCalledWith(
+        3,
+        'https://api.deezer.com/playlist/30/tracks?index=2',
+        expect.anything(),
+      );
+      expect(items.map((t) => t.id)).toEqual([1, 2, 3]);
+    });
+
+    it('returns an empty array when the first page has no data', async () => {
+      vi.mocked(fetch).mockResolvedValue(mockRestOk({ data: [], total: 0 }));
+      const items = await deezerFetchAll<DeezerTrack>('/album/20/tracks');
+      expect(items).toEqual([]);
+    });
+
+    it('propagates errors from any page', async () => {
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(
+          mockRestOk({ data: [MOCK_TRACK], total: 2, next: 'https://api.deezer.com/playlist/30/tracks?index=1' }),
+        )
+        .mockResolvedValueOnce(mockHttpError(500));
+
+      await expect(deezerFetchAll<DeezerTrack>('/playlist/30/tracks')).rejects.toThrow('Deezer HTTP error');
     });
   });
 

@@ -1,6 +1,6 @@
 import { getPrismaClient } from '../plugins/prisma';
 import { DeezerAlbum, DeezerArtist, DeezerTrack } from '../types/deezer';
-import { getAlbum, getArtist, getArtistTopTracks, getPlaylist } from './deezer';
+import { deezerFetchAll, getAlbum, getArtist, getPlaylist } from './deezer';
 
 function toArtistData(a: DeezerArtist) {
   return {
@@ -86,6 +86,8 @@ async function persistTrack(track: DeezerTrack) {
 
 /**
  * Synchronise une playlist Deezer et ses tracks dans la base de données.
+ * Suit la pagination Deezer (`DeezerList.next`) pour récupérer tous les tracks,
+ * même au-delà de la première page.
  * Upsert l'artiste, l'album et le track pour chaque entrée de la playlist,
  * puis la playlist elle-même et ses associations PlaylistTrack.
  * @param {number | string} deezerId Identifiant Deezer de la playlist.
@@ -94,7 +96,7 @@ async function persistTrack(track: DeezerTrack) {
 export async function syncPlaylist(deezerId: number | string) {
   const prisma = getPrismaClient();
   const playlist = await getPlaylist(deezerId);
-  const tracks = playlist.tracks?.data ?? [];
+  const tracks = await deezerFetchAll<DeezerTrack>(`/playlist/${playlist.id}/tracks`);
 
   for (const track of tracks) {
     await persistTrack(track);
@@ -139,6 +141,8 @@ export async function syncPlaylist(deezerId: number | string) {
 
 /**
  * Synchronise un album Deezer et ses tracks dans la base de données.
+ * Suit la pagination Deezer (`DeezerList.next`) pour récupérer tous les tracks
+ * de l'album, même au-delà de la première page.
  * @param {number | string} deezerId Identifiant Deezer de l'album.
  * @returns {Promise<object>} Album Prisma avec artist et tracks inclus.
  */
@@ -151,7 +155,8 @@ export async function syncAlbum(deezerId: number | string) {
   await upsertArtist(artist);
   await upsertAlbum(album, artist.id);
 
-  for (const track of album.tracks?.data ?? []) {
+  const tracks = await deezerFetchAll<DeezerTrack>(`/album/${album.id}/tracks`);
+  for (const track of tracks) {
     const trackArtist = track.artist ?? artist;
     await upsertArtist(trackArtist);
     await upsertTrack(
@@ -169,20 +174,22 @@ export async function syncAlbum(deezerId: number | string) {
 
 /**
  * Synchronise les top tracks d'un artiste Deezer dans la base de données.
+ * Suit la pagination Deezer (`DeezerList.next`) pour récupérer toutes les pages
+ * de top tracks, même au-delà de la première page.
  * @param {number | string} deezerId Identifiant Deezer de l'artiste.
- * @param {number} [limit=50] Nombre maximum de tracks.
+ * @param {number} [limit=50] Nombre maximum de tracks par page.
  * @returns {Promise<object>} Artiste Prisma.
  */
 export async function syncArtist(deezerId: number | string, limit = 50) {
   const prisma = getPrismaClient();
   const [artist, topTracks] = await Promise.all([
     getArtist(deezerId),
-    getArtistTopTracks(deezerId, limit),
+    deezerFetchAll<DeezerTrack>(`/artist/${deezerId}/top?limit=${limit}`),
   ]);
 
   await upsertArtist(artist);
 
-  for (const track of topTracks.data) {
+  for (const track of topTracks) {
     await persistTrack(track);
   }
 

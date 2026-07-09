@@ -102,7 +102,7 @@ function isDeezerError(data: unknown): data is DeezerError {
 async function deezerFetch<T>(path: string): Promise<T> {
   await rateLimiter.acquire();
 
-  const url = `${DEEZER_API}${path}`;
+  const url = path.startsWith('http') ? path : `${DEEZER_API}${path}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let response: Response;
@@ -139,6 +139,23 @@ async function deezerFetch<T>(path: string): Promise<T> {
   }
 
   return data as T;
+}
+
+/**
+ * Récupère toutes les pages d'une liste Deezer paginée en suivant `DeezerList.next`
+ * jusqu'à épuisement. Chaque page passe par `deezerFetch`, donc par le rate limiter.
+ * @param {string} path Chemin (ou URL) de la première page (ex. `/playlist/123/tracks`).
+ * @returns {Promise<T[]>} Éléments de toutes les pages, concaténés dans l'ordre.
+ */
+export async function deezerFetchAll<T>(path: string): Promise<T[]> {
+  const items: T[] = [];
+  let next: string | undefined = path;
+  while (next) {
+    const page: DeezerList<T> = await deezerFetch<DeezerList<T>>(next);
+    items.push(...page.data);
+    next = page.next;
+  }
+  return items;
 }
 
 const DEEZER_PIPE_URL = 'https://pipe.deezer.com/api';
