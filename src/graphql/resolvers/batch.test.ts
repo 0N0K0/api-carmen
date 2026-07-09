@@ -66,6 +66,29 @@ describe('createBatcher', () => {
     expect(bad.status).toBe('rejected');
     expect((bad as PromiseRejectedResult).reason.message).toBe('key 666 is cursed');
   });
+
+  it('does not retry when the failed batch had a single key (would just repeat the same failure)', async () => {
+    const fetchMany = vi.fn().mockRejectedValue(new Error('key 1 is invalid'));
+    const load = createBatcher(fetchMany, (v: { id: number }) => v.id);
+
+    await expect(load(1)).rejects.toThrow('key 1 is invalid');
+    expect(fetchMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails fast on likely-systemic failure: if the first retried key also fails, rejects the rest without calling fetchMany for each', async () => {
+    let individualCalls = 0;
+    const fetchMany = vi.fn().mockImplementation((keys: number[]) => {
+      if (keys.length > 1) return Promise.reject(new Error('connection reset'));
+      individualCalls += 1;
+      return Promise.reject(new Error('connection reset'));
+    });
+    const load = createBatcher(fetchMany, (v: { id: number }) => v.id);
+
+    const results = await Promise.allSettled([load(1), load(2), load(3)]);
+
+    expect(results.every((r) => r.status === 'rejected')).toBe(true);
+    expect(individualCalls).toBe(1);
+  });
 });
 
 describe('createGroupBatcher', () => {

@@ -1,21 +1,58 @@
 type Waiter<V> = { resolve: (v: V) => void; reject: (e: unknown) => void };
 
+function rejectAll<R>(waiterLists: Iterable<Waiter<R>[]>, err: unknown) {
+  for (const waiters of waiterLists) for (const w of waiters) w.reject(err);
+}
+
 /**
  * Ré-essaie clé par clé après l'échec d'un batch, pour qu'une seule clé en tort
  * n'entraîne pas le rejet des autres appelants du même tick (requêtes concurrentes
  * non liées incluses, le batcher étant partagé au niveau du module).
+ *
+ * Sonde d'abord la première clé seule : si elle échoue aussi, la panne est probablement
+ * systémique (DB down) plutôt que liée à une clé précise — on rejette tout de suite au
+ * lieu de marteler la DB avec un appel individuel par clé restante.
+ *
+ * Si le batch ne contenait qu'une seule clé, refaire le même appel donnerait le même
+ * résultat : on rejette directement avec l'erreur d'origine, sans nouvel appel.
  * @param {Map<K, Waiter<R>[]>} batch Batch ayant échoué, clé -> appelants en attente.
  * @param {(key: K) => Promise<R>} resolveOne Résout une seule clé (fallback individuel).
- * @returns {Promise<void>} Résolu une fois tous les appelants notifiés (succès ou échec individuel).
+ * @param {unknown} originalErr Erreur du batch d'origine (réutilisée si batch.size === 1).
+ * @returns {Promise<void>} Résolu une fois tous les appelants notifiés (succès ou échec).
  */
-async function retryIndividually<K, R>(batch: Map<K, Waiter<R>[]>, resolveOne: (key: K) => Promise<R>) {
+async function retryIndividually<K, R>(
+  batch: Map<K, Waiter<R>[]>,
+  resolveOne: (key: K) => Promise<R>,
+  originalErr: unknown,
+) {
+  const entries = [...batch];
+
+  if (entries.length <= 1) {
+    if (entries.length === 1) rejectAll([entries[0][1]], originalErr);
+    return;
+  }
+
+  const [firstKey, firstWaiters] = entries[0];
+  let firstValue: R;
+  try {
+    firstValue = await resolveOne(firstKey);
+  } catch (err) {
+    // la 1re clé échoue aussi seule : panne probablement systémique, on arrête là.
+    rejectAll(
+      entries.map(([, waiters]) => waiters),
+      err,
+    );
+    return;
+  }
+  for (const w of firstWaiters) w.resolve(firstValue);
+
   await Promise.all(
-    [...batch].map(async ([key, waiters]) => {
+    entries.slice(1).map(async ([key, waiters]) => {
       try {
         const value = await resolveOne(key);
         for (const w of waiters) w.resolve(value);
       } catch (err) {
-        for (const w of waiters) w.reject(err);
+        rejectAll([waiters], err);
       }
     }),
   );
@@ -45,11 +82,15 @@ export function createBatcher<K, V>(
           for (const w of waiters) w.resolve(value);
         }
       })
-      .catch(() =>
-        retryIndividually(batch, async (key) => {
-          const values = await fetchMany([key]);
-          return values.find((v) => keyOf(v) === key) ?? null;
-        }),
+      .catch((err) =>
+        retryIndividually(
+          batch,
+          async (key) => {
+            const values = await fetchMany([key]);
+            return values.find((v) => keyOf(v) === key) ?? null;
+          },
+          err,
+        ),
       );
   }
 
@@ -95,9 +136,7 @@ export function createGroupBatcher<K, V>(
           for (const w of waiters) w.resolve(arr);
         }
       })
-      .catch(() =>
-        retryIndividually(batch, (key) => fetchMany([key])),
-      );
+      .catch((err) => retryIndividually(batch, (key) => fetchMany([key]), err));
   }
 
   return (key: K) =>
