@@ -1,6 +1,7 @@
 import { getPlaylist } from '../../services/deezer';
 import { getPrismaClient } from '../../plugins/prisma';
 import { mapPlaylist, mapPrismaPlaylist } from './mappers';
+import { paginate, parseDbId } from './pagination';
 
 export { mapPlaylist };
 
@@ -21,8 +22,8 @@ export const playlistResolvers = {
      */
     playlist: async (_: unknown, args: { id: string }) => {
       try {
-        const dbId = Number(args.id);
-        if (!Number.isNaN(dbId)) {
+        const dbId = parseDbId(args.id);
+        if (dbId !== null) {
           const row = await getPrismaClient().playlist.findUnique({
             where: { id: dbId },
             include: playlistInclude,
@@ -44,19 +45,13 @@ export const playlistResolvers = {
      * @returns {Promise<object>} Page de playlists avec pagination.
      */
     playlists: async (_: unknown, args: { limit?: number; offset?: number }) => {
-      const limit = args.limit ?? 20;
-      const offset = args.offset ?? 0;
       const prisma = getPrismaClient();
-      const [rows, total] = await Promise.all([
-        prisma.playlist.findMany({
-          skip: offset,
-          take: limit,
-          include: playlistInclude,
-          orderBy: { id: 'asc' },
-        }),
-        prisma.playlist.count(),
-      ]);
-      return { items: rows.map(mapPrismaPlaylist), pagination: { offset, limit, total } };
+      return paginate(
+        args,
+        (limit, offset) =>
+          prisma.playlist.findMany({ skip: offset, take: limit, include: playlistInclude, orderBy: { id: 'asc' } }),
+        () => prisma.playlist.count(),
+      );
     },
   },
 };

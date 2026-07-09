@@ -1,12 +1,16 @@
 import { getAlbum } from '../../services/deezer';
 import { getPrismaClient } from '../../plugins/prisma';
 import { mapAlbum, mapPrismaAlbum } from './mappers';
+import { paginate, parseDbId } from './pagination';
 
 export { mapAlbum };
 
 const albumInclude = {
   artist: true,
-  tracks: { include: { artist: true }, orderBy: { trackPosition: 'asc' as const } },
+  tracks: {
+    include: { artist: true, album: { include: { artist: true } } },
+    orderBy: { trackPosition: 'asc' as const },
+  },
 };
 
 export const albumResolvers = {
@@ -19,8 +23,8 @@ export const albumResolvers = {
      */
     album: async (_: unknown, args: { id: string }) => {
       try {
-        const dbId = Number(args.id);
-        if (!Number.isNaN(dbId)) {
+        const dbId = parseDbId(args.id);
+        if (dbId !== null) {
           const row = await getPrismaClient().album.findUnique({
             where: { id: dbId },
             include: albumInclude,
@@ -42,19 +46,13 @@ export const albumResolvers = {
      * @returns {Promise<object>} Page d'albums avec pagination.
      */
     albums: async (_: unknown, args: { limit?: number; offset?: number }) => {
-      const limit = args.limit ?? 20;
-      const offset = args.offset ?? 0;
       const prisma = getPrismaClient();
-      const [rows, total] = await Promise.all([
-        prisma.album.findMany({
-          skip: offset,
-          take: limit,
-          include: albumInclude,
-          orderBy: { id: 'asc' },
-        }),
-        prisma.album.count(),
-      ]);
-      return { items: rows.map(mapPrismaAlbum), pagination: { offset, limit, total } };
+      return paginate(
+        args,
+        (limit, offset) =>
+          prisma.album.findMany({ skip: offset, take: limit, include: albumInclude, orderBy: { id: 'asc' } }),
+        () => prisma.album.count(),
+      );
     },
   },
 };

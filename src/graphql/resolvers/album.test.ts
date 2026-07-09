@@ -123,6 +123,28 @@ const MOCK_DB_ALBUM = {
   tracks: [],
 };
 
+const MOCK_DB_TRACK_WITH_ALBUM = {
+  id: 1,
+  title: 'One More Time',
+  titleShort: null,
+  titleVersion: null,
+  isrc: null,
+  link: null,
+  duration: 320,
+  trackPosition: 1,
+  diskNumber: null,
+  rank: null,
+  releaseDate: null,
+  explicitLyrics: null,
+  preview: null,
+  bpm: null,
+  gain: null,
+  artistId: 10,
+  albumId: 20,
+  artist: MOCK_DB_ARTIST,
+  album: { ...MOCK_DB_ALBUM, tracks: undefined },
+};
+
 describe('Query.album', () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -151,6 +173,16 @@ describe('Query.album', () => {
     vi.mocked(getAlbum).mockRejectedValue(new Error('Not found'));
     const result = await albumResolvers.Query.album(undefined, { id: '999' });
     expect(result).toBeNull();
+  });
+
+  it('includes album on each nested track (Track.album is non-null in schema)', async () => {
+    mockPrisma.album.findUnique.mockResolvedValue({
+      ...MOCK_DB_ALBUM,
+      tracks: [MOCK_DB_TRACK_WITH_ALBUM],
+    });
+    const result = await albumResolvers.Query.album(undefined, { id: '20' });
+    expect(result?.tracks?.[0].album).not.toBeNull();
+    expect(result?.tracks?.[0].album?.title).toBe('Discovery');
   });
 });
 

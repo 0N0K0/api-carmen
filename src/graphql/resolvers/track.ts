@@ -1,6 +1,7 @@
 import { getTrack, getStreamUrl, searchDeezer } from '../../services/deezer';
 import { getPrismaClient } from '../../plugins/prisma';
 import { mapTrack, mapAlbum, mapArtist, mapPlaylist, mapPrismaTrack } from './mappers';
+import { paginate, parseDbId } from './pagination';
 
 export { mapTrack };
 
@@ -29,8 +30,8 @@ export const trackResolvers = {
      */
     track: async (_: unknown, args: { id: string }) => {
       try {
-        const dbId = Number(args.id);
-        if (!Number.isNaN(dbId)) {
+        const dbId = parseDbId(args.id);
+        if (dbId !== null) {
           const row = await getPrismaClient().track.findUnique({
             where: { id: dbId },
             include: trackInclude,
@@ -52,19 +53,13 @@ export const trackResolvers = {
      * @returns {Promise<object>} Page de tracks avec pagination.
      */
     tracks: async (_: unknown, args: { limit?: number; offset?: number }) => {
-      const limit = args.limit ?? 20;
-      const offset = args.offset ?? 0;
       const prisma = getPrismaClient();
-      const [rows, total] = await Promise.all([
-        prisma.track.findMany({
-          skip: offset,
-          take: limit,
-          include: trackInclude,
-          orderBy: { id: 'asc' },
-        }),
-        prisma.track.count(),
-      ]);
-      return { items: rows.map(mapPrismaTrack), pagination: { offset, limit, total } };
+      return paginate(
+        args,
+        (limit, offset) =>
+          prisma.track.findMany({ skip: offset, take: limit, include: trackInclude, orderBy: { id: 'asc' } }),
+        () => prisma.track.count(),
+      );
     },
 
     /**

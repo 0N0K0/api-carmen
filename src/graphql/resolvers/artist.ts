@@ -1,6 +1,7 @@
 import { getArtist } from '../../services/deezer';
 import { getPrismaClient } from '../../plugins/prisma';
 import { mapArtist, mapPrismaArtist } from './mappers';
+import { paginate, parseDbId } from './pagination';
 
 export { mapArtist };
 
@@ -14,8 +15,8 @@ export const artistResolvers = {
      */
     artist: async (_: unknown, args: { id: string }) => {
       try {
-        const dbId = Number(args.id);
-        if (!Number.isNaN(dbId)) {
+        const dbId = parseDbId(args.id);
+        if (dbId !== null) {
           const row = await getPrismaClient().artist.findUnique({ where: { id: dbId } });
           if (row) return mapPrismaArtist(row);
         }
@@ -34,14 +35,12 @@ export const artistResolvers = {
      * @returns {Promise<object>} Page d'artistes avec pagination.
      */
     artists: async (_: unknown, args: { limit?: number; offset?: number }) => {
-      const limit = args.limit ?? 20;
-      const offset = args.offset ?? 0;
       const prisma = getPrismaClient();
-      const [rows, total] = await Promise.all([
-        prisma.artist.findMany({ skip: offset, take: limit, orderBy: { id: 'asc' } }),
-        prisma.artist.count(),
-      ]);
-      return { items: rows.map(mapPrismaArtist), pagination: { offset, limit, total } };
+      return paginate(
+        args,
+        (limit, offset) => prisma.artist.findMany({ skip: offset, take: limit, orderBy: { id: 'asc' } }),
+        () => prisma.artist.count(),
+      );
     },
   },
 };
