@@ -195,7 +195,7 @@ describe('Playlist.tracks', () => {
     ]);
     const result = await playlistResolvers.Playlist.tracks(MOCK_DB_PLAYLIST);
     expect(mockPrisma.playlistTrack.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { playlistId: 30 }, orderBy: { position: 'asc' } }),
+      expect.objectContaining({ where: { playlistId: { in: [30] } }, orderBy: { position: 'asc' } }),
     );
     expect(result).toEqual([{ id: 1, title: 'Track One' }]);
   });

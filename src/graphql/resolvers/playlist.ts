@@ -2,6 +2,7 @@ import { getPlaylist } from '../../services/deezer';
 import { getPrismaClient } from '../../plugins/prisma';
 import { mapPlaylist } from './mappers';
 import { paginate, parseDbId } from './pagination';
+import { loadTracksByPlaylistId } from './loaders';
 
 export { mapPlaylist };
 
@@ -55,11 +56,7 @@ export const playlistResolvers = {
      */
     tracks: async (parent: PlaylistParent) => {
       if ('tracks' in parent) return parent.tracks;
-      const rows = await getPrismaClient().playlistTrack.findMany({
-        where: { playlistId: Number(parent.id) },
-        orderBy: { position: 'asc' },
-        include: { track: true },
-      });
+      const rows = await loadTracksByPlaylistId(Number(parent.id));
       return rows.map((pt) => pt.track);
     },
   },

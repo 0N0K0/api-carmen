@@ -2,6 +2,7 @@ import { getTrack, getStreamUrl, searchDeezer } from '../../services/deezer';
 import { getPrismaClient } from '../../plugins/prisma';
 import { mapTrack, mapAlbum, mapArtist, mapPlaylist } from './mappers';
 import { paginate, parseDbId } from './pagination';
+import { loadArtistById, loadAlbumById } from './loaders';
 
 export { mapTrack };
 
@@ -97,7 +98,7 @@ export const trackResolvers = {
      */
     artist: async (parent: TrackParent) => {
       if ('artist' in parent) return parent.artist;
-      return getPrismaClient().artist.findUnique({ where: { id: parent.artistId } });
+      return loadArtistById(parent.artistId as number);
     },
 
     /**
@@ -108,7 +109,7 @@ export const trackResolvers = {
      */
     album: async (parent: TrackParent) => {
       if ('album' in parent) return parent.album;
-      return getPrismaClient().album.findUnique({ where: { id: parent.albumId } });
+      return loadAlbumById(parent.albumId as number);
     },
   },
 };

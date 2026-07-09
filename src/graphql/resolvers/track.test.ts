@@ -10,8 +10,8 @@ vi.mock('../../services/deezer', () => ({
 
 const mockPrisma = {
   track: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn() },
-  artist: { findUnique: vi.fn() },
-  album: { findUnique: vi.fn() },
+  artist: { findMany: vi.fn() },
+  album: { findMany: vi.fn() },
 };
 vi.mock('../../plugins/prisma', () => ({
   getPrismaClient: () => mockPrisma,
@@ -222,15 +222,15 @@ describe('Track.artist', () => {
   it('returns parent.artist directly when already resolved (Deezer fallback)', async () => {
     const mappedTrack = mapTrack(MOCK_TRACK);
     const result = await trackResolvers.Track.artist(mappedTrack);
-    expect(mockPrisma.artist.findUnique).not.toHaveBeenCalled();
+    expect(mockPrisma.artist.findMany).not.toHaveBeenCalled();
     expect(result).toBe(mappedTrack.artist);
   });
 
-  it('loads from Prisma by artistId when not already resolved (DB row)', async () => {
-    mockPrisma.artist.findUnique.mockResolvedValue(MOCK_DB_ARTIST);
+  it('loads from Prisma by artistId when not already resolved (DB row), batched via findMany', async () => {
+    mockPrisma.artist.findMany.mockResolvedValue([MOCK_DB_ARTIST]);
     const result = await trackResolvers.Track.artist(MOCK_DB_TRACK);
-    expect(mockPrisma.artist.findUnique).toHaveBeenCalledWith({ where: { id: 10 } });
-    expect(result).toBe(MOCK_DB_ARTIST);
+    expect(mockPrisma.artist.findMany).toHaveBeenCalledWith({ where: { id: { in: [10] } } });
+    expect(result).toEqual(MOCK_DB_ARTIST);
   });
 });
 
@@ -240,16 +240,16 @@ describe('Track.album', () => {
   it('returns parent.album directly when already resolved (Deezer fallback)', async () => {
     const mappedTrack = mapTrack(MOCK_TRACK);
     const result = await trackResolvers.Track.album(mappedTrack);
-    expect(mockPrisma.album.findUnique).not.toHaveBeenCalled();
+    expect(mockPrisma.album.findMany).not.toHaveBeenCalled();
     expect(result).toBe(mappedTrack.album);
   });
 
-  it('loads from Prisma by albumId when not already resolved (DB row), enabling arbitrary query depth', async () => {
+  it('loads from Prisma by albumId when not already resolved (DB row), batched via findMany', async () => {
     const dbAlbum = { id: 20, title: 'Discovery' };
-    mockPrisma.album.findUnique.mockResolvedValue(dbAlbum);
+    mockPrisma.album.findMany.mockResolvedValue([dbAlbum]);
     const result = await trackResolvers.Track.album(MOCK_DB_TRACK);
-    expect(mockPrisma.album.findUnique).toHaveBeenCalledWith({ where: { id: 20 } });
-    expect(result).toBe(dbAlbum);
+    expect(mockPrisma.album.findMany).toHaveBeenCalledWith({ where: { id: { in: [20] } } });
+    expect(result).toEqual(dbAlbum);
   });
 });
 
