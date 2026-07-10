@@ -4,6 +4,7 @@ import { albumResolvers } from '../resolvers/album';
 import { trackResolvers } from '../resolvers/track';
 import { playlistResolvers } from '../resolvers/playlist';
 import { syncResolvers } from '../resolvers/sync';
+import { userResolvers } from '../resolvers/user';
 
 const typeDefs = /* GraphQL */ `
   type Artist {
@@ -109,6 +110,83 @@ const typeDefs = /* GraphQL */ `
     pagination: Pagination!
   }
 
+  type CurrentUser {
+    id: ID!
+    name: String!
+    email: String
+  }
+
+  type FavoriteContributor {
+    id: ID!
+    name: String!
+  }
+
+  type FavoritePlaylistOwner {
+    id: ID!
+    name: String!
+  }
+
+  type FavoritePlaylist {
+    id: ID!
+    title: String!
+    estimatedTracksCount: Int
+    isFavorite: Boolean
+    description: String
+    owner: FavoritePlaylistOwner
+  }
+
+  type FavoriteAlbum {
+    id: ID!
+    displayTitle: String!
+    releaseDate: String
+    isExplicit: Boolean
+    isFavorite: Boolean
+    contributors: [FavoriteContributor!]!
+  }
+
+  type FavoriteArtist {
+    id: ID!
+    name: String!
+    fansCount: Int
+    isFavorite: Boolean
+  }
+
+  type FavoriteTrackAlbum {
+    id: ID!
+    displayTitle: String!
+  }
+
+  type FavoriteTrack {
+    id: ID!
+    title: String!
+    duration: Int!
+    isrc: String
+    isExplicit: Boolean
+    isFavorite: Boolean
+    album: FavoriteTrackAlbum
+    artists: [FavoriteContributor!]!
+  }
+
+  type UserLibrary {
+    tracks: [FavoriteTrack!]!
+    albums: [FavoriteAlbum!]!
+    artists: [FavoriteArtist!]!
+    playlists: [FavoritePlaylist!]!
+  }
+
+  type SyncLibraryError {
+    type: String!
+    deezerId: ID!
+    message: String!
+  }
+
+  type SyncLibrarySummary {
+    playlistsSynced: Int!
+    albumsSynced: Int!
+    artistsSynced: Int!
+    errors: [SyncLibraryError!]!
+  }
+
   type Query {
     track(id: ID!): Track
     artist(id: ID!): Artist
@@ -119,6 +197,8 @@ const typeDefs = /* GraphQL */ `
     artists(limit: Int, offset: Int): ArtistPage!
     playlists(limit: Int, offset: Int): PlaylistPage!
     search(query: String!, type: SearchType, limit: Int): SearchResults!
+    currentUser: CurrentUser
+    userLibrary(limit: Int): UserLibrary!
   }
 
   type Mutation {
@@ -126,6 +206,7 @@ const typeDefs = /* GraphQL */ `
     syncPlaylist(deezerId: ID!): Playlist!
     syncAlbum(deezerId: ID!): Album!
     syncArtist(deezerId: ID!, limit: Int): Artist!
+    syncUserLibrary(limit: Int): SyncLibrarySummary!
   }
 `;
 
@@ -137,10 +218,12 @@ export const schema = createSchema({
       ...artistResolvers.Query,
       ...albumResolvers.Query,
       ...playlistResolvers.Query,
+      ...userResolvers.Query,
     },
     Mutation: {
       ...trackResolvers.Mutation,
       ...syncResolvers.Mutation,
+      ...userResolvers.Mutation,
     },
     Track: trackResolvers.Track,
     Album: albumResolvers.Album,

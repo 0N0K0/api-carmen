@@ -7,6 +7,7 @@ vi.mock('./deezer', () => ({
   getArtist: vi.fn(),
   deezerFetchAll: vi.fn(),
   deezerFetchAllFrom: vi.fn(),
+  getUserLibrary: vi.fn(),
 }));
 
 const mockPrisma = {
@@ -20,8 +21,8 @@ vi.mock('../plugins/prisma', () => ({
   getPrismaClient: () => mockPrisma,
 }));
 
-import { deezerFetchAll, deezerFetchAllFrom, getAlbum, getArtist, getPlaylist } from './deezer';
-import { syncAlbum, syncArtist, syncPlaylist } from './sync';
+import { deezerFetchAll, deezerFetchAllFrom, getAlbum, getArtist, getPlaylist, getUserLibrary } from './deezer';
+import { syncAlbum, syncArtist, syncPlaylist, syncUserLibrary } from './sync';
 
 const MOCK_ARTIST: DeezerArtist = {
   id: 10,
@@ -271,6 +272,75 @@ describe('sync service', () => {
       await syncArtist(10, 10);
 
       expect(deezerFetchAll).toHaveBeenCalledWith('/artist/10/top?limit=10');
+    });
+  });
+
+  describe('syncUserLibrary', () => {
+    const LIB_PLAYLIST = {
+      id: '30', title: 'P', estimatedTracksCount: 1, isFavorite: true, description: null, owner: null,
+    };
+    const LIB_ALBUM = {
+      id: '20', displayTitle: 'A', releaseDate: null, isExplicit: null, isFavorite: true, contributors: [],
+    };
+    const LIB_ARTIST = { id: '10', name: 'Ar', fansCount: null, isFavorite: true };
+
+    beforeEach(() => {
+      vi.mocked(getPlaylist).mockResolvedValue(MOCK_PLAYLIST);
+      vi.mocked(getAlbum).mockResolvedValue({ ...MOCK_ALBUM, artist: MOCK_ARTIST });
+      vi.mocked(getArtist).mockResolvedValue(MOCK_ARTIST);
+      vi.mocked(deezerFetchAll).mockResolvedValue([MOCK_TRACK]);
+    });
+
+    it('syncs every playlist, album and artist from the user library', async () => {
+      vi.mocked(getUserLibrary).mockResolvedValue({
+        tracks: [],
+        albums: [LIB_ALBUM],
+        artists: [LIB_ARTIST],
+        playlists: [LIB_PLAYLIST],
+      });
+
+      const result = await syncUserLibrary();
+
+      expect(getUserLibrary).toHaveBeenCalledWith(50);
+      expect(getPlaylist).toHaveBeenCalledWith('30');
+      expect(getAlbum).toHaveBeenCalledWith('20');
+      expect(getArtist).toHaveBeenCalledWith('10');
+      expect(result).toEqual({ playlistsSynced: 1, albumsSynced: 1, artistsSynced: 1, errors: [] });
+    });
+
+    it('passes a custom limit through to getUserLibrary', async () => {
+      vi.mocked(getUserLibrary).mockResolvedValue({ tracks: [], albums: [], artists: [], playlists: [] });
+
+      await syncUserLibrary(200);
+
+      expect(getUserLibrary).toHaveBeenCalledWith(200);
+    });
+
+    it('isolates a failing item: one bad playlist does not block albums, artists or other playlists', async () => {
+      vi.mocked(getUserLibrary).mockResolvedValue({
+        tracks: [],
+        albums: [LIB_ALBUM],
+        artists: [LIB_ARTIST],
+        playlists: [LIB_PLAYLIST, { ...LIB_PLAYLIST, id: '31' }],
+      });
+      vi.mocked(getPlaylist).mockImplementation((id) =>
+        id === '31' ? Promise.reject(new Error('boom')) : Promise.resolve(MOCK_PLAYLIST),
+      );
+
+      const result = await syncUserLibrary();
+
+      expect(result.playlistsSynced).toBe(1);
+      expect(result.albumsSynced).toBe(1);
+      expect(result.artistsSynced).toBe(1);
+      expect(result.errors).toEqual([{ type: 'playlist', deezerId: '31', message: 'boom' }]);
+    });
+
+    it('returns an empty summary when the library has nothing to sync', async () => {
+      vi.mocked(getUserLibrary).mockResolvedValue({ tracks: [], albums: [], artists: [], playlists: [] });
+
+      const result = await syncUserLibrary();
+
+      expect(result).toEqual({ playlistsSynced: 0, albumsSynced: 0, artistsSynced: 0, errors: [] });
     });
   });
 });
