@@ -6,7 +6,13 @@ import { loadArtistById, loadAlbumById } from './loaders';
 
 export { mapTrack };
 
-type TrackParent = { artistId?: number; albumId?: number; artist?: unknown; album?: unknown };
+type TrackParent = {
+  id?: bigint | number | string;
+  artistId?: number;
+  albumId?: number;
+  artist?: unknown;
+  album?: unknown;
+};
 
 export const trackResolvers = {
   Mutation: {
@@ -90,6 +96,15 @@ export const trackResolvers = {
   },
 
   Track: {
+    /**
+     * Résout l'id d'un track. `Track.id` est un `BigInt` côté Prisma (certains ids de
+     * tracks Deezer dépassent Int32) — le scalaire `ID` de graphql-js ne sait pas
+     * sérialiser un `bigint` nativement, d'où la conversion explicite en string ici.
+     * @param {TrackParent} parent Track parent (ligne Prisma ou track Deezer mappé).
+     * @returns {string} Id du track.
+     */
+    id: (parent: TrackParent) => String(parent.id),
+
     /**
      * Résout l'artiste d'un track : déjà présent (résultat Deezer) sinon chargé depuis Prisma
      * par `artistId`, quelle que soit la profondeur de la requête GraphQL.

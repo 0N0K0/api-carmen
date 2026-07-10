@@ -43,7 +43,8 @@ model Album {
 
 model Track {
   // --- Deezer fields ---
-  id             Int      @id
+  // BigInt: certains ids de tracks Deezer dépassent la plage Int32 (> 2 147 483 647)
+  id             BigInt   @id
   title          String
   titleShort     String?
   titleVersion   String?
@@ -126,7 +127,7 @@ model PlaylistTrack {
   playlistId Int
   playlist   Playlist @relation(fields: [playlistId], references: [id])
 
-  trackId  Int
+  trackId  BigInt
   track    Track @relation(fields: [trackId], references: [id])
 
   position Int
@@ -146,6 +147,6 @@ model HistoryEntry {
   id       Int      @id @default(autoincrement())
   playedAt DateTime @default(now())
 
-  trackId Int
+  trackId BigInt
   track   Track @relation(fields: [trackId], references: [id])
 }
