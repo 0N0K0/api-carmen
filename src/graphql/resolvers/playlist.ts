@@ -6,7 +6,7 @@ import { loadTracksByPlaylistId } from './loaders';
 
 export { mapPlaylist };
 
-type PlaylistParent = { id: number | string; tracks?: unknown };
+type PlaylistParent = { id: bigint | number | string; tracks?: unknown };
 
 export const playlistResolvers = {
   Query: {
@@ -48,6 +48,15 @@ export const playlistResolvers = {
   },
 
   Playlist: {
+    /**
+     * Résout l'id d'une playlist. `Playlist.id` est un `BigInt` côté Prisma (certains ids
+     * de playlists Deezer dépassent Int32) — le scalaire `ID` de graphql-js ne sait pas
+     * sérialiser un `bigint` nativement, d'où la conversion explicite en string ici.
+     * @param {PlaylistParent} parent Playlist parent (ligne Prisma ou playlist Deezer mappée).
+     * @returns {string} Id de la playlist.
+     */
+    id: (parent: PlaylistParent) => String(parent.id),
+
     /**
      * Résout les tracks d'une playlist : déjà présents (résultat Deezer) sinon chargés depuis
      * Prisma via `PlaylistTrack`, triés par position, quelle que soit la profondeur de la requête.

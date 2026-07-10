@@ -85,50 +85,54 @@ describe.skipIf(!hasArl)('deezer authenticated endpoints (Pipe API)', () => {
     expect(user.name).toBeTruthy();
   });
 
+  // getUser{Tracks,Albums,Artists,Playlists} suivent maintenant toute la pagination
+  // (plus de plafond via le paramètre, qui ne contrôle que la taille de page) — un compte
+  // avec beaucoup de favoris/playlists peut prendre plus que le timeout par défaut (5s).
+
   it('getUserTracks — retourne les tracks favoris', async () => {
-    const tracks = await getUserTracks(5);
+    const tracks = await getUserTracks(100);
     expect(tracks).toBeInstanceOf(Array);
     if (tracks.length > 0) {
       expect(tracks[0].id).toBeTruthy();
       expect(tracks[0].title).toBeTruthy();
       expect(tracks[0].duration).toBeGreaterThan(0);
     }
-  });
+  }, 30000);
 
   it('getUserAlbums — retourne les albums favoris', async () => {
-    const albums = await getUserAlbums(5);
+    const albums = await getUserAlbums(100);
     expect(albums).toBeInstanceOf(Array);
     if (albums.length > 0) {
       expect(albums[0].id).toBeTruthy();
       expect(albums[0].displayTitle).toBeTruthy();
     }
-  });
+  }, 30000);
 
   it('getUserArtists — retourne les artistes favoris', async () => {
-    const artists = await getUserArtists(5);
+    const artists = await getUserArtists(100);
     expect(artists).toBeInstanceOf(Array);
     if (artists.length > 0) {
       expect(artists[0].id).toBeTruthy();
       expect(artists[0].name).toBeTruthy();
     }
-  });
+  }, 30000);
 
   it('getUserPlaylists — retourne les playlists favorites', async () => {
-    const playlists = await getUserPlaylists(5);
+    const playlists = await getUserPlaylists(100);
     expect(playlists).toBeInstanceOf(Array);
     if (playlists.length > 0) {
       expect(playlists[0].id).toBeTruthy();
       expect(playlists[0].title).toBeTruthy();
     }
-  });
+  }, 30000);
 
   it('getUserLibrary — retourne la bibliothèque complète', async () => {
-    const library = await getUserLibrary();
+    const library = await getUserLibrary(100);
     expect(library).toMatchObject({
       tracks: expect.any(Array),
       albums: expect.any(Array),
       artists: expect.any(Array),
       playlists: expect.any(Array),
     });
-  });
+  }, 30000);
 });

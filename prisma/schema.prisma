@@ -104,7 +104,8 @@ model Track {
 }
 
 model Playlist {
-  id            Int      @id
+  // BigInt: certains ids de playlists Deezer dépassent la plage Int32 (> 2 147 483 647)
+  id            BigInt   @id
   title         String
   description   String?
   duration      Int?
@@ -124,7 +125,7 @@ model Playlist {
 }
 
 model PlaylistTrack {
-  playlistId Int
+  playlistId BigInt
   playlist   Playlist @relation(fields: [playlistId], references: [id])
 
   trackId  BigInt

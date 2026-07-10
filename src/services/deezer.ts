@@ -326,8 +326,9 @@ export async function getPlaylist(
 const Q_GET_ME = `query GetMe { me { id email user { id name } } }`;
 
 const Q_GET_FAVORITE_TRACKS = `
-query GetFavoriteTracks($first: Int) {
-  me { userFavorites { tracks(first: $first) {
+query GetFavoriteTracks($first: Int, $after: String) {
+  me { userFavorites { tracks(first: $first, after: $after) {
+    pageInfo { hasNextPage endCursor }
     edges { node {
       id title duration ISRC isExplicit isFavorite
       album { id displayTitle }
@@ -337,8 +338,9 @@ query GetFavoriteTracks($first: Int) {
 }`;
 
 const Q_GET_FAVORITE_ALBUMS = `
-query GetFavoriteAlbums($first: Int) {
-  me { userFavorites { albums(first: $first) {
+query GetFavoriteAlbums($first: Int, $after: String) {
+  me { userFavorites { albums(first: $first, after: $after) {
+    pageInfo { hasNextPage endCursor }
     edges { node {
       id displayTitle releaseDate isExplicit isFavorite
       contributors(first: 5, roles: [MAIN]) { edges { node { ... on Artist { id name } } } }
@@ -347,8 +349,9 @@ query GetFavoriteAlbums($first: Int) {
 }`;
 
 const Q_GET_FAVORITE_ARTISTS = `
-query GetFavoriteArtists($first: Int) {
-  me { userFavorites { artists(first: $first) {
+query GetFavoriteArtists($first: Int, $after: String) {
+  me { userFavorites { artists(first: $first, after: $after) {
+    pageInfo { hasNextPage endCursor }
     edges { node { id name fansCount isFavorite } }
   } } }
 }`;
@@ -357,8 +360,9 @@ query GetFavoriteArtists($first: Int) {
 // playlists explicitement mises en favori, pas celles possédées par l'utilisateur —
 // pour la plupart des utilisateurs ça retourne 0 résultat alors qu'ils en possèdent des dizaines.
 const Q_GET_MY_PLAYLISTS = `
-query GetMyPlaylists($first: Int) {
-  me { playlists(first: $first) {
+query GetMyPlaylists($first: Int, $after: String) {
+  me { playlists(first: $first, after: $after) {
+    pageInfo { hasNextPage endCursor }
     edges { node { id title estimatedTracksCount isFavorite description owner { id name } } }
   } }
 }`;
@@ -367,9 +371,50 @@ query GetMyPlaylists($first: Int) {
 // Helpers de mapping Pipe API → types internes
 // ---------------------------------------------------------------------------
 
+type PipePageInfo = { hasNextPage: boolean; endCursor: string | null };
 type PipeEdge<T> = { node: T };
-type PipeConnection<T> = { edges: PipeEdge<T>[] };
+type PipeConnection<T> = { edges: PipeEdge<T>[]; pageInfo?: PipePageInfo };
 type PipeContributorNode = { id: string; name: string };
+
+const PIPE_MAX_PAGES = 200;
+
+/**
+ * Suit la pagination cursor (Relay-style : `edges` + `pageInfo.hasNextPage`/`endCursor`)
+ * d'une connexion Pipe API jusqu'à épuisement, en réutilisant `pipeFetch` (donc le JWT
+ * et la gestion d'erreurs). S'arrête avec une erreur au-delà de `PIPE_MAX_PAGES` pour
+ * éviter une boucle infinie sur une réponse malformée.
+ * @param {string} query Requête GraphQL paginée (doit accepter `$first`/`$after` et exposer `pageInfo`).
+ * @param {string} operationName Nom de l'opération GraphQL.
+ * @param {number} pageSize Taille de page (`first`).
+ * @param {(data: T) => PipeConnection<N>} getConnection Extrait la connexion (edges + pageInfo) de la réponse.
+ * @returns {Promise<N[]>} Tous les nœuds de toutes les pages, dans l'ordre.
+ */
+async function pipeFetchAllPages<T, N>(
+  query: string,
+  operationName: string,
+  pageSize: number,
+  getConnection: (data: T) => PipeConnection<N>,
+): Promise<N[]> {
+  const items: N[] = [];
+  let after: string | undefined;
+  let pages = 0;
+
+  while (true) {
+    const data = await pipeFetch<T>(query, operationName, { first: pageSize, after });
+    const connection = getConnection(data);
+    items.push(...connection.edges.map((e) => e.node));
+    pages += 1;
+
+    const pageInfo = connection.pageInfo;
+    if (!pageInfo?.hasNextPage || !pageInfo.endCursor) break;
+    if (pages >= PIPE_MAX_PAGES) {
+      throw new Error(`Deezer Pipe pagination exceeded ${PIPE_MAX_PAGES} pages — aborting`);
+    }
+    after = pageInfo.endCursor;
+  }
+
+  return items;
+}
 
 type RawTrackNode = {
   id: string;
@@ -431,77 +476,85 @@ export async function getCurrentUser(): Promise<PipeUser> {
 }
 
 /**
- * Récupère les tracks favoris de l'utilisateur. Nécessite `DEEZER_ARL`.
- * @param {number} [limit=25] Nombre maximum de tracks.
- * @returns {Promise<PipeTrack[]>} Liste des tracks favoris.
- */
-export async function getUserTracks(limit: number = 25): Promise<PipeTrack[]> {
-  const data = await pipeFetch<{
-    me: { userFavorites: { tracks: PipeConnection<RawTrackNode> } };
-  }>(Q_GET_FAVORITE_TRACKS, 'GetFavoriteTracks', { first: limit });
-  return data.me.userFavorites.tracks.edges.map((e) => mapTrackNode(e.node));
-}
-
-/**
- * Récupère les albums favoris de l'utilisateur. Nécessite `DEEZER_ARL`.
- * @param {number} [limit=25] Nombre maximum d'albums.
- * @returns {Promise<PipeAlbum[]>} Liste des albums favoris.
- */
-export async function getUserAlbums(limit: number = 25): Promise<PipeAlbum[]> {
-  const data = await pipeFetch<{
-    me: { userFavorites: { albums: PipeConnection<RawAlbumNode> } };
-  }>(Q_GET_FAVORITE_ALBUMS, 'GetFavoriteAlbums', { first: limit });
-  return data.me.userFavorites.albums.edges.map((e) => mapAlbumNode(e.node));
-}
-
-/**
- * Récupère les artistes favoris de l'utilisateur. Nécessite `DEEZER_ARL`.
- * @param {number} [limit=25] Nombre maximum d'artistes.
- * @returns {Promise<PipeFavoriteArtist[]>} Liste des artistes favoris.
- */
-export async function getUserArtists(limit: number = 25): Promise<PipeFavoriteArtist[]> {
-  const data = await pipeFetch<{
-    me: { userFavorites: { artists: PipeConnection<PipeFavoriteArtist> } };
-  }>(Q_GET_FAVORITE_ARTISTS, 'GetFavoriteArtists', { first: limit });
-  return data.me.userFavorites.artists.edges.map((e) => ({
-    id: e.node.id,
-    name: e.node.name,
-    fansCount: e.node.fansCount ?? null,
-    isFavorite: e.node.isFavorite ?? null,
-  }));
-}
-
-/**
- * Récupère les playlists de l'utilisateur (possédées, pas seulement mises en favori).
+ * Récupère tous les tracks favoris de l'utilisateur, toutes pages confondues.
  * Nécessite `DEEZER_ARL`.
- * @param {number} [limit=25] Nombre maximum de playlists.
- * @returns {Promise<PipePlaylist[]>} Liste des playlists de l'utilisateur.
+ * @param {number} [pageSize=50] Taille de page Pipe API (`first`).
+ * @returns {Promise<PipeTrack[]>} Liste complète des tracks favoris.
  */
-export async function getUserPlaylists(limit: number = 25): Promise<PipePlaylist[]> {
-  const data = await pipeFetch<{
-    me: { playlists: PipeConnection<PipePlaylist> };
-  }>(Q_GET_MY_PLAYLISTS, 'GetMyPlaylists', { first: limit });
-  return data.me.playlists.edges.map((e) => ({
-    id: e.node.id,
-    title: e.node.title,
-    estimatedTracksCount: e.node.estimatedTracksCount ?? null,
-    isFavorite: e.node.isFavorite ?? null,
-    description: e.node.description ?? null,
-    owner: e.node.owner ?? null,
+export async function getUserTracks(pageSize: number = 50): Promise<PipeTrack[]> {
+  const nodes = await pipeFetchAllPages<
+    { me: { userFavorites: { tracks: PipeConnection<RawTrackNode> } } },
+    RawTrackNode
+  >(Q_GET_FAVORITE_TRACKS, 'GetFavoriteTracks', pageSize, (data) => data.me.userFavorites.tracks);
+  return nodes.map(mapTrackNode);
+}
+
+/**
+ * Récupère tous les albums favoris de l'utilisateur, toutes pages confondues.
+ * Nécessite `DEEZER_ARL`.
+ * @param {number} [pageSize=50] Taille de page Pipe API (`first`).
+ * @returns {Promise<PipeAlbum[]>} Liste complète des albums favoris.
+ */
+export async function getUserAlbums(pageSize: number = 50): Promise<PipeAlbum[]> {
+  const nodes = await pipeFetchAllPages<
+    { me: { userFavorites: { albums: PipeConnection<RawAlbumNode> } } },
+    RawAlbumNode
+  >(Q_GET_FAVORITE_ALBUMS, 'GetFavoriteAlbums', pageSize, (data) => data.me.userFavorites.albums);
+  return nodes.map(mapAlbumNode);
+}
+
+/**
+ * Récupère tous les artistes favoris de l'utilisateur, toutes pages confondues.
+ * Nécessite `DEEZER_ARL`.
+ * @param {number} [pageSize=50] Taille de page Pipe API (`first`).
+ * @returns {Promise<PipeFavoriteArtist[]>} Liste complète des artistes favoris.
+ */
+export async function getUserArtists(pageSize: number = 50): Promise<PipeFavoriteArtist[]> {
+  const nodes = await pipeFetchAllPages<
+    { me: { userFavorites: { artists: PipeConnection<PipeFavoriteArtist> } } },
+    PipeFavoriteArtist
+  >(Q_GET_FAVORITE_ARTISTS, 'GetFavoriteArtists', pageSize, (data) => data.me.userFavorites.artists);
+  return nodes.map((node) => ({
+    id: node.id,
+    name: node.name,
+    fansCount: node.fansCount ?? null,
+    isFavorite: node.isFavorite ?? null,
   }));
 }
 
 /**
- * Récupère la bibliothèque complète de l'utilisateur en parallèle. Nécessite `DEEZER_ARL`.
- * @param {number} [limit=50] Nombre maximum d'éléments par catégorie (tracks, albums, artistes, playlists).
- * @returns {Promise<PipeUserLibrary>} Tracks, albums, artistes et playlists favoris.
+ * Récupère toutes les playlists de l'utilisateur (possédées, pas seulement mises en
+ * favori), toutes pages confondues. Nécessite `DEEZER_ARL`.
+ * @param {number} [pageSize=50] Taille de page Pipe API (`first`).
+ * @returns {Promise<PipePlaylist[]>} Liste complète des playlists de l'utilisateur.
  */
-export async function getUserLibrary(limit: number = 50): Promise<PipeUserLibrary> {
+export async function getUserPlaylists(pageSize: number = 50): Promise<PipePlaylist[]> {
+  const nodes = await pipeFetchAllPages<
+    { me: { playlists: PipeConnection<PipePlaylist> } },
+    PipePlaylist
+  >(Q_GET_MY_PLAYLISTS, 'GetMyPlaylists', pageSize, (data) => data.me.playlists);
+  return nodes.map((node) => ({
+    id: node.id,
+    title: node.title,
+    estimatedTracksCount: node.estimatedTracksCount ?? null,
+    isFavorite: node.isFavorite ?? null,
+    description: node.description ?? null,
+    owner: node.owner ?? null,
+  }));
+}
+
+/**
+ * Récupère la bibliothèque complète de l'utilisateur en parallèle (toutes pages
+ * confondues pour chaque catégorie). Nécessite `DEEZER_ARL`.
+ * @param {number} [pageSize=50] Taille de page Pipe API (`first`) par requête.
+ * @returns {Promise<PipeUserLibrary>} Tracks, albums, artistes et playlists favoris, en entier.
+ */
+export async function getUserLibrary(pageSize: number = 50): Promise<PipeUserLibrary> {
   const [tracks, albums, artists, playlists] = await Promise.all([
-    getUserTracks(limit),
-    getUserAlbums(limit),
-    getUserArtists(limit),
-    getUserPlaylists(limit),
+    getUserTracks(pageSize),
+    getUserAlbums(pageSize),
+    getUserArtists(pageSize),
+    getUserPlaylists(pageSize),
   ]);
   return { tracks, albums, artists, playlists };
 }
