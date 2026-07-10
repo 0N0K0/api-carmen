@@ -6,6 +6,7 @@ vi.mock('./deezer', () => ({
   getAlbum: vi.fn(),
   getArtist: vi.fn(),
   deezerFetchAll: vi.fn(),
+  deezerFetchAllFrom: vi.fn(),
 }));
 
 const mockPrisma = {
@@ -19,7 +20,7 @@ vi.mock('../plugins/prisma', () => ({
   getPrismaClient: () => mockPrisma,
 }));
 
-import { deezerFetchAll, getAlbum, getArtist, getPlaylist } from './deezer';
+import { deezerFetchAll, deezerFetchAllFrom, getAlbum, getArtist, getPlaylist } from './deezer';
 import { syncAlbum, syncArtist, syncPlaylist } from './sync';
 
 const MOCK_ARTIST: DeezerArtist = {
@@ -149,6 +150,21 @@ describe('sync service', () => {
       );
       expect(result).toEqual({ id: 30, tracks: [] });
     });
+
+    it('seeds pagination from the first page already returned by getPlaylist, without refetching it', async () => {
+      const playlistWithFirstPage: DeezerPlaylist = {
+        ...MOCK_PLAYLIST,
+        tracks: { data: [MOCK_TRACK], next: 'https://api.deezer.com/playlist/30/tracks?index=25' },
+      };
+      vi.mocked(getPlaylist).mockResolvedValue(playlistWithFirstPage);
+      vi.mocked(deezerFetchAllFrom).mockResolvedValue([MOCK_TRACK, MOCK_TRACK_2]);
+
+      await syncPlaylist(30);
+
+      expect(deezerFetchAllFrom).toHaveBeenCalledWith(playlistWithFirstPage.tracks);
+      expect(deezerFetchAll).not.toHaveBeenCalled();
+      expect(mockPrisma.track.upsert).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('syncAlbum', () => {
@@ -183,6 +199,22 @@ describe('sync service', () => {
       expect(mockPrisma.track.upsert).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: 2 } }),
       );
+    });
+
+    it('seeds pagination from the first page already returned by getAlbum, without refetching it', async () => {
+      const albumWithFirstPage: DeezerAlbum = {
+        ...MOCK_ALBUM,
+        artist: MOCK_ARTIST,
+        tracks: { data: [MOCK_TRACK], next: 'https://api.deezer.com/album/20/tracks?index=25' },
+      };
+      vi.mocked(getAlbum).mockResolvedValue(albumWithFirstPage);
+      vi.mocked(deezerFetchAllFrom).mockResolvedValue([MOCK_TRACK, MOCK_TRACK_2]);
+
+      await syncAlbum(20);
+
+      expect(deezerFetchAllFrom).toHaveBeenCalledWith(albumWithFirstPage.tracks);
+      expect(deezerFetchAll).not.toHaveBeenCalled();
+      expect(mockPrisma.track.upsert).toHaveBeenCalledTimes(2);
     });
 
     it('falls back to contributors[0] when album has no artist', async () => {

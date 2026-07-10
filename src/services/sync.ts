@@ -1,6 +1,6 @@
 import { getPrismaClient } from '../plugins/prisma';
 import { DeezerAlbum, DeezerArtist, DeezerTrack } from '../types/deezer';
-import { deezerFetchAll, getAlbum, getArtist, getPlaylist } from './deezer';
+import { deezerFetchAll, deezerFetchAllFrom, getAlbum, getArtist, getPlaylist } from './deezer';
 
 function toArtistData(a: DeezerArtist) {
   return {
@@ -96,7 +96,9 @@ async function persistTrack(track: DeezerTrack) {
 export async function syncPlaylist(deezerId: number | string) {
   const prisma = getPrismaClient();
   const playlist = await getPlaylist(deezerId);
-  const tracks = await deezerFetchAll<DeezerTrack>(`/playlist/${playlist.id}/tracks`);
+  const tracks = playlist.tracks
+    ? await deezerFetchAllFrom<DeezerTrack>(playlist.tracks)
+    : await deezerFetchAll<DeezerTrack>(`/playlist/${playlist.id}/tracks`);
 
   for (const track of tracks) {
     await persistTrack(track);
@@ -155,7 +157,9 @@ export async function syncAlbum(deezerId: number | string) {
   await upsertArtist(artist);
   await upsertAlbum(album, artist.id);
 
-  const tracks = await deezerFetchAll<DeezerTrack>(`/album/${album.id}/tracks`);
+  const tracks = album.tracks
+    ? await deezerFetchAllFrom<DeezerTrack>(album.tracks)
+    : await deezerFetchAll<DeezerTrack>(`/album/${album.id}/tracks`);
   for (const track of tracks) {
     const trackArtist = track.artist ?? artist;
     await upsertArtist(trackArtist);
