@@ -102,7 +102,7 @@ function isDeezerError(data: unknown): data is DeezerError {
 async function deezerFetch<T>(path: string): Promise<T> {
   await rateLimiter.acquire();
 
-  const url = `${DEEZER_API}${path}`;
+  const url = path.startsWith('http') ? path : `${DEEZER_API}${path}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let response: Response;
@@ -139,6 +139,53 @@ async function deezerFetch<T>(path: string): Promise<T> {
   }
 
   return data as T;
+}
+
+const MAX_PAGES = 1000;
+
+/**
+ * Poursuit la pagination d'une liste Deezer déjà partiellement récupérée, en suivant
+ * `DeezerList.next` jusqu'à épuisement. Chaque page passe par `deezerFetch`, donc par
+ * le rate limiter. S'arrête avec une erreur si `next` boucle sur une URL déjà vue ou
+ * dépasse `maxPages`, pour éviter une boucle infinie sur une réponse Deezer malformée.
+ * @param {DeezerList<T>} firstPage Première page déjà en main (ex. renvoyée par `getPlaylist`).
+ * @param {number} [maxPages=MAX_PAGES] Nombre maximum de pages à suivre avant d'abandonner.
+ * @returns {Promise<T[]>} Éléments de toutes les pages (la première incluse), concaténés dans l'ordre.
+ */
+export async function deezerFetchAllFrom<T>(firstPage: DeezerList<T>, maxPages = MAX_PAGES): Promise<T[]> {
+  const items: T[] = [...firstPage.data];
+  const seen = new Set<string>();
+  let next = firstPage.next;
+  let pages = 1;
+
+  while (next) {
+    if (seen.has(next)) {
+      throw new Error(`Deezer pagination loop detected at ${next}`);
+    }
+    if (pages >= maxPages) {
+      throw new Error(`Deezer pagination exceeded ${maxPages} pages — aborting`);
+    }
+    seen.add(next);
+
+    const page: DeezerList<T> = await deezerFetch<DeezerList<T>>(next);
+    items.push(...page.data);
+    next = page.next;
+    pages += 1;
+  }
+
+  return items;
+}
+
+/**
+ * Récupère toutes les pages d'une liste Deezer paginée en suivant `DeezerList.next`
+ * jusqu'à épuisement, en partant de la première page.
+ * @param {string} path Chemin (ou URL) de la première page (ex. `/playlist/123/tracks`).
+ * @param {number} [maxPages=MAX_PAGES] Nombre maximum de pages à suivre avant d'abandonner.
+ * @returns {Promise<T[]>} Éléments de toutes les pages, concaténés dans l'ordre.
+ */
+export async function deezerFetchAll<T>(path: string, maxPages = MAX_PAGES): Promise<T[]> {
+  const firstPage = await deezerFetch<DeezerList<T>>(path);
+  return deezerFetchAllFrom(firstPage, maxPages);
 }
 
 const DEEZER_PIPE_URL = 'https://pipe.deezer.com/api';
