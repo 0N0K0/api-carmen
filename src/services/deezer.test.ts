@@ -427,6 +427,71 @@ describe('deezer service', () => {
       expect(playlists[0].owner).toEqual({ id: '99', name: 'Test User' });
     });
 
+    it('getUserPlaylists follows cursor pagination across multiple pages (a user with 742 playlists must not be capped at one page)', async () => {
+      const PLAYLIST_2 = { ...PIPE_PLAYLIST_NODE, id: '31' };
+      const PLAYLIST_3 = { ...PIPE_PLAYLIST_NODE, id: '32' };
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(
+          mockPipeOk({
+            me: {
+              playlists: {
+                pageInfo: { hasNextPage: true, endCursor: '30' },
+                edges: [{ node: PIPE_PLAYLIST_NODE }],
+              },
+            },
+          }),
+        )
+        .mockResolvedValueOnce(
+          mockPipeOk({
+            me: {
+              playlists: {
+                pageInfo: { hasNextPage: true, endCursor: '31' },
+                edges: [{ node: PLAYLIST_2 }],
+              },
+            },
+          }),
+        )
+        .mockResolvedValueOnce(
+          mockPipeOk({
+            me: {
+              playlists: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                edges: [{ node: PLAYLIST_3 }],
+              },
+            },
+          }),
+        );
+
+      const playlists = await getUserPlaylists(1);
+
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(playlists.map((p) => p.id)).toEqual(['30', '31', '32']);
+
+      const secondCallBody = JSON.parse((vi.mocked(fetch).mock.calls[1][1] as RequestInit).body as string);
+      expect(secondCallBody.variables).toEqual({ first: 1, after: '30' });
+      const thirdCallBody = JSON.parse((vi.mocked(fetch).mock.calls[2][1] as RequestInit).body as string);
+      expect(thirdCallBody.variables).toEqual({ first: 1, after: '31' });
+    });
+
+    it('getUserPlaylists throws instead of looping forever past PIPE_MAX_PAGES', async () => {
+      let page = 0;
+      vi.mocked(fetch).mockImplementation(() => {
+        page += 1;
+        return Promise.resolve(
+          mockPipeOk({
+            me: {
+              playlists: {
+                pageInfo: { hasNextPage: true, endCursor: `cursor-${page}` },
+                edges: [{ node: { ...PIPE_PLAYLIST_NODE, id: String(page) } }],
+              },
+            },
+          }),
+        );
+      });
+
+      await expect(getUserPlaylists(1)).rejects.toThrow('Deezer Pipe pagination exceeded');
+    }, 15000);
+
     it('getUserLibrary fires 4 parallel Pipe requests', async () => {
       vi.mocked(fetch)
         .mockResolvedValueOnce(mockPipeOk({ me: { userFavorites: { tracks: { edges: [{ node: PIPE_TRACK_NODE }] } } } }))
