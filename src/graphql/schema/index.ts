@@ -83,11 +83,41 @@ const typeDefs = /* GraphQL */ `
     PLAYLIST
   }
 
+  type Pagination {
+    offset: Int!
+    limit: Int!
+    total: Int!
+  }
+
+  type TrackPage {
+    items: [Track!]!
+    pagination: Pagination!
+  }
+
+  type AlbumPage {
+    items: [Album!]!
+    pagination: Pagination!
+  }
+
+  type ArtistPage {
+    items: [Artist!]!
+    pagination: Pagination!
+  }
+
+  type PlaylistPage {
+    items: [Playlist!]!
+    pagination: Pagination!
+  }
+
   type Query {
     track(id: ID!): Track
     artist(id: ID!): Artist
     album(id: ID!): Album
     playlist(id: ID!): Playlist
+    tracks(limit: Int, offset: Int): TrackPage!
+    albums(limit: Int, offset: Int): AlbumPage!
+    artists(limit: Int, offset: Int): ArtistPage!
+    playlists(limit: Int, offset: Int): PlaylistPage!
     search(query: String!, type: SearchType, limit: Int): SearchResults!
   }
 
@@ -112,5 +142,8 @@ export const schema = createSchema({
       ...trackResolvers.Mutation,
       ...syncResolvers.Mutation,
     },
+    Track: trackResolvers.Track,
+    Album: albumResolvers.Album,
+    Playlist: playlistResolvers.Playlist,
   },
 });
