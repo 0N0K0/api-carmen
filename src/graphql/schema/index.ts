@@ -182,6 +182,7 @@ const typeDefs = /* GraphQL */ `
 
   type SyncLibrarySummary {
     playlistsSynced: Int!
+    playlistsRemoved: Int!
     albumsSynced: Int!
     artistsSynced: Int!
     errors: [SyncLibraryError!]!

@@ -55,7 +55,7 @@ describe('Mutation.syncUserLibrary', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('forwards the given limit and returns the sync summary', async () => {
-    const summary = { playlistsSynced: 2, albumsSynced: 1, artistsSynced: 3, errors: [] };
+    const summary = { playlistsSynced: 2, playlistsRemoved: 1, albumsSynced: 1, artistsSynced: 3, errors: [] };
     vi.mocked(syncUserLibrary).mockResolvedValue(summary);
 
     const result = await userResolvers.Mutation.syncUserLibrary(undefined, { limit: 100 });

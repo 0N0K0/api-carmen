@@ -130,6 +130,12 @@ export async function syncPlaylist(deezerId: number | string) {
     });
   }
 
+  // Miroir : un track retiré de la playlist côté Deezer doit disparaître localement,
+  // pas juste ne plus être ajouté. Le Track lui-même n'est pas supprimé (catalogue partagé).
+  await prisma.playlistTrack.deleteMany({
+    where: { playlistId: playlist.id, trackId: { notIn: tracks.map((t) => t.id) } },
+  });
+
   return prisma.playlist.findUniqueOrThrow({
     where: { id: playlist.id },
     include: {
@@ -208,6 +214,7 @@ export interface SyncLibraryError {
 
 export interface SyncLibrarySummary {
   playlistsSynced: number;
+  playlistsRemoved: number;
   albumsSynced: number;
   artistsSynced: number;
   errors: SyncLibraryError[];
@@ -238,6 +245,18 @@ export async function syncUserLibrary(limit = 50): Promise<SyncLibrarySummary> {
     }
   }
 
+  // Miroir : une playlist supprimée (ou plus possédée) côté Deezer doit disparaître
+  // localement. Garde-fou : ne jamais purger sur une liste vide — une réponse Deezer
+  // vide/transitoire ne doit pas être interprétée comme "l'utilisateur n'a plus rien".
+  let playlistsRemoved = 0;
+  if (library.playlists.length > 0) {
+    const currentIds = library.playlists.map((p) => Number(p.id));
+    const deleted = await getPrismaClient().playlist.deleteMany({
+      where: { id: { notIn: currentIds } },
+    });
+    playlistsRemoved = deleted.count;
+  }
+
   for (const album of library.albums) {
     try {
       await syncAlbum(album.id);
@@ -256,5 +275,5 @@ export async function syncUserLibrary(limit = 50): Promise<SyncLibrarySummary> {
     }
   }
 
-  return { playlistsSynced, albumsSynced, artistsSynced, errors };
+  return { playlistsSynced, playlistsRemoved, albumsSynced, artistsSynced, errors };
 }

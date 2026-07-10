@@ -14,8 +14,8 @@ const mockPrisma = {
   artist: { upsert: vi.fn(), findUniqueOrThrow: vi.fn() },
   album: { upsert: vi.fn(), findUniqueOrThrow: vi.fn() },
   track: { upsert: vi.fn() },
-  playlist: { upsert: vi.fn(), findUniqueOrThrow: vi.fn() },
-  playlistTrack: { upsert: vi.fn() },
+  playlist: { upsert: vi.fn(), findUniqueOrThrow: vi.fn(), deleteMany: vi.fn() },
+  playlistTrack: { upsert: vi.fn(), deleteMany: vi.fn() },
 };
 vi.mock('../plugins/prisma', () => ({
   getPrismaClient: () => mockPrisma,
@@ -76,6 +76,8 @@ describe('sync service', () => {
     mockPrisma.playlist.findUniqueOrThrow.mockResolvedValue({ id: 30, tracks: [] });
     mockPrisma.album.findUniqueOrThrow.mockResolvedValue({ id: 20, tracks: [] });
     mockPrisma.artist.findUniqueOrThrow.mockResolvedValue({ id: 10 });
+    mockPrisma.playlistTrack.deleteMany.mockResolvedValue({ count: 0 });
+    mockPrisma.playlist.deleteMany.mockResolvedValue({ count: 0 });
   });
 
   describe('syncPlaylist', () => {
@@ -125,6 +127,28 @@ describe('sync service', () => {
         where: { playlistId_trackId: { playlistId: 30, trackId: 2 } },
         create: { playlistId: 30, trackId: 2, position: 2 },
         update: { position: 2 },
+      });
+    });
+
+    it('mirrors deletions: removes PlaylistTrack rows for tracks no longer in the Deezer playlist', async () => {
+      vi.mocked(getPlaylist).mockResolvedValue(MOCK_PLAYLIST);
+      vi.mocked(deezerFetchAll).mockResolvedValue([MOCK_TRACK]);
+
+      await syncPlaylist(30);
+
+      expect(mockPrisma.playlistTrack.deleteMany).toHaveBeenCalledWith({
+        where: { playlistId: 30, trackId: { notIn: [1] } },
+      });
+    });
+
+    it('mirrors a fully emptied playlist: deletes every PlaylistTrack when Deezer returns no tracks', async () => {
+      vi.mocked(getPlaylist).mockResolvedValue(MOCK_PLAYLIST);
+      vi.mocked(deezerFetchAll).mockResolvedValue([]);
+
+      await syncPlaylist(30);
+
+      expect(mockPrisma.playlistTrack.deleteMany).toHaveBeenCalledWith({
+        where: { playlistId: 30, trackId: { notIn: [] } },
       });
     });
 
@@ -305,7 +329,13 @@ describe('sync service', () => {
       expect(getPlaylist).toHaveBeenCalledWith('30');
       expect(getAlbum).toHaveBeenCalledWith('20');
       expect(getArtist).toHaveBeenCalledWith('10');
-      expect(result).toEqual({ playlistsSynced: 1, albumsSynced: 1, artistsSynced: 1, errors: [] });
+      expect(result).toEqual({
+        playlistsSynced: 1,
+        playlistsRemoved: 0,
+        albumsSynced: 1,
+        artistsSynced: 1,
+        errors: [],
+      });
     });
 
     it('passes a custom limit through to getUserLibrary', async () => {
@@ -335,12 +365,44 @@ describe('sync service', () => {
       expect(result.errors).toEqual([{ type: 'playlist', deezerId: '31', message: 'boom' }]);
     });
 
+    it('mirrors deletions: removes local playlists no longer present in the Deezer library', async () => {
+      vi.mocked(getUserLibrary).mockResolvedValue({
+        tracks: [],
+        albums: [],
+        artists: [],
+        playlists: [LIB_PLAYLIST],
+      });
+      mockPrisma.playlist.deleteMany.mockResolvedValue({ count: 3 });
+
+      const result = await syncUserLibrary();
+
+      expect(mockPrisma.playlist.deleteMany).toHaveBeenCalledWith({
+        where: { id: { notIn: [30] } },
+      });
+      expect(result.playlistsRemoved).toBe(3);
+    });
+
+    it('never prunes playlists when the fetched library is empty (avoids wiping everything on a transient/empty response)', async () => {
+      vi.mocked(getUserLibrary).mockResolvedValue({ tracks: [], albums: [], artists: [], playlists: [] });
+
+      const result = await syncUserLibrary();
+
+      expect(mockPrisma.playlist.deleteMany).not.toHaveBeenCalled();
+      expect(result.playlistsRemoved).toBe(0);
+    });
+
     it('returns an empty summary when the library has nothing to sync', async () => {
       vi.mocked(getUserLibrary).mockResolvedValue({ tracks: [], albums: [], artists: [], playlists: [] });
 
       const result = await syncUserLibrary();
 
-      expect(result).toEqual({ playlistsSynced: 0, albumsSynced: 0, artistsSynced: 0, errors: [] });
+      expect(result).toEqual({
+        playlistsSynced: 0,
+        playlistsRemoved: 0,
+        albumsSynced: 0,
+        artistsSynced: 0,
+        errors: [],
+      });
     });
   });
 });
