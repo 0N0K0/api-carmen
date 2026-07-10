@@ -5,15 +5,17 @@ vi.mock('./deezer', () => ({
   getPlaylist: vi.fn(),
   getAlbum: vi.fn(),
   getArtist: vi.fn(),
+  getTrack: vi.fn(),
   deezerFetchAll: vi.fn(),
   deezerFetchAllFrom: vi.fn(),
   getUserLibrary: vi.fn(),
+  getUserTracks: vi.fn(),
 }));
 
 const mockPrisma = {
   artist: { upsert: vi.fn(), findUniqueOrThrow: vi.fn() },
   album: { upsert: vi.fn(), findUniqueOrThrow: vi.fn() },
-  track: { upsert: vi.fn() },
+  track: { upsert: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findMany: vi.fn() },
   playlist: { upsert: vi.fn(), findUniqueOrThrow: vi.fn(), deleteMany: vi.fn() },
   playlistTrack: { upsert: vi.fn(), deleteMany: vi.fn() },
 };
@@ -21,8 +23,17 @@ vi.mock('../plugins/prisma', () => ({
   getPrismaClient: () => mockPrisma,
 }));
 
-import { deezerFetchAll, deezerFetchAllFrom, getAlbum, getArtist, getPlaylist, getUserLibrary } from './deezer';
-import { syncAlbum, syncArtist, syncPlaylist, syncUserLibrary } from './sync';
+import {
+  deezerFetchAll,
+  deezerFetchAllFrom,
+  getAlbum,
+  getArtist,
+  getPlaylist,
+  getTrack,
+  getUserLibrary,
+  getUserTracks,
+} from './deezer';
+import { syncAlbum, syncArtist, syncFavoriteTracks, syncPlaylist, syncUserLibrary } from './sync';
 
 const MOCK_ARTIST: DeezerArtist = {
   id: 10,
@@ -78,6 +89,9 @@ describe('sync service', () => {
     mockPrisma.artist.findUniqueOrThrow.mockResolvedValue({ id: 10 });
     mockPrisma.playlistTrack.deleteMany.mockResolvedValue({ count: 0 });
     mockPrisma.playlist.deleteMany.mockResolvedValue({ count: 0 });
+    mockPrisma.track.update.mockResolvedValue({});
+    mockPrisma.track.updateMany.mockResolvedValue({ count: 0 });
+    mockPrisma.track.findMany.mockResolvedValue([]);
   });
 
   describe('syncPlaylist', () => {
@@ -299,6 +313,94 @@ describe('sync service', () => {
     });
   });
 
+  describe('syncFavoriteTracks', () => {
+    const PIPE_TRACK_1 = {
+      id: '1', title: 'Track One', duration: 200, isrc: null, isExplicit: null,
+      isFavorite: true, album: null, artists: [],
+    };
+    const PIPE_TRACK_2 = {
+      id: '2', title: 'Track Two', duration: 200, isrc: null, isExplicit: null,
+      isFavorite: true, album: null, artists: [],
+    };
+
+    it('re-fetches each favorite via REST, upserts it and marks it favorite', async () => {
+      vi.mocked(getUserTracks).mockResolvedValue([PIPE_TRACK_1]);
+      vi.mocked(getTrack).mockResolvedValue(MOCK_TRACK);
+
+      await syncFavoriteTracks();
+
+      expect(getUserTracks).toHaveBeenCalledWith(50);
+      expect(getTrack).toHaveBeenCalledWith('1');
+      expect(mockPrisma.track.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 1 } }),
+      );
+      expect(mockPrisma.track.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: { isFavorite: true },
+      });
+    });
+
+    it('mirrors deletions: unmarks tracks no longer in the current favorites (does not delete them)', async () => {
+      vi.mocked(getUserTracks).mockResolvedValue([PIPE_TRACK_1]);
+      vi.mocked(getTrack).mockResolvedValue(MOCK_TRACK);
+
+      await syncFavoriteTracks();
+
+      expect(mockPrisma.track.updateMany).toHaveBeenCalledWith({
+        where: { isFavorite: true, id: { notIn: [1] } },
+        data: { isFavorite: false },
+      });
+    });
+
+    it('never unmarks anything when the fetched favorites list is empty (avoids wiping everything on a transient/empty response)', async () => {
+      vi.mocked(getUserTracks).mockResolvedValue([]);
+
+      await syncFavoriteTracks();
+
+      expect(mockPrisma.track.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('does not let one failing favorite block the others', async () => {
+      vi.mocked(getUserTracks).mockResolvedValue([PIPE_TRACK_1, PIPE_TRACK_2]);
+      vi.mocked(getTrack).mockImplementation((id) =>
+        id === '1' ? Promise.reject(new Error('boom')) : Promise.resolve(MOCK_TRACK_2),
+      );
+
+      await syncFavoriteTracks();
+
+      expect(mockPrisma.track.upsert).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.track.update).toHaveBeenCalledWith({
+        where: { id: 2 },
+        data: { isFavorite: true },
+      });
+      // le favori en échec reste dans la liste "courante" pour le pruning : pas de faux négatif
+      expect(mockPrisma.track.updateMany).toHaveBeenCalledWith({
+        where: { isFavorite: true, id: { notIn: [1, 2] } },
+        data: { isFavorite: false },
+      });
+    });
+
+    it('returns the currently favorited tracks from Prisma', async () => {
+      vi.mocked(getUserTracks).mockResolvedValue([]);
+      mockPrisma.track.findMany.mockResolvedValue([MOCK_TRACK]);
+
+      const result = await syncFavoriteTracks();
+
+      expect(mockPrisma.track.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { isFavorite: true } }),
+      );
+      expect(result).toEqual([MOCK_TRACK]);
+    });
+
+    it('passes a custom limit to getUserTracks', async () => {
+      vi.mocked(getUserTracks).mockResolvedValue([]);
+
+      await syncFavoriteTracks(200);
+
+      expect(getUserTracks).toHaveBeenCalledWith(200);
+    });
+  });
+
   describe('syncUserLibrary', () => {
     const LIB_PLAYLIST = {
       id: '30', title: 'P', estimatedTracksCount: 1, isFavorite: true, description: null, owner: null,
@@ -307,11 +409,16 @@ describe('sync service', () => {
       id: '20', displayTitle: 'A', releaseDate: null, isExplicit: null, isFavorite: true, contributors: [],
     };
     const LIB_ARTIST = { id: '10', name: 'Ar', fansCount: null, isFavorite: true };
+    const LIB_TRACK = {
+      id: '1', title: 'Track One', duration: 200, isrc: null, isExplicit: null,
+      isFavorite: true, album: null, artists: [],
+    };
 
     beforeEach(() => {
       vi.mocked(getPlaylist).mockResolvedValue(MOCK_PLAYLIST);
       vi.mocked(getAlbum).mockResolvedValue({ ...MOCK_ALBUM, artist: MOCK_ARTIST });
       vi.mocked(getArtist).mockResolvedValue(MOCK_ARTIST);
+      vi.mocked(getTrack).mockResolvedValue(MOCK_TRACK);
       vi.mocked(deezerFetchAll).mockResolvedValue([MOCK_TRACK]);
     });
 
@@ -334,6 +441,7 @@ describe('sync service', () => {
         playlistsRemoved: 0,
         albumsSynced: 1,
         artistsSynced: 1,
+        tracksSynced: 0,
         errors: [],
       });
     });
@@ -344,6 +452,45 @@ describe('sync service', () => {
       await syncUserLibrary(200);
 
       expect(getUserLibrary).toHaveBeenCalledWith(200);
+    });
+
+    it('syncs favorite tracks and mirrors unfavorited ones', async () => {
+      vi.mocked(getUserLibrary).mockResolvedValue({
+        tracks: [LIB_TRACK],
+        albums: [],
+        artists: [],
+        playlists: [],
+      });
+
+      const result = await syncUserLibrary();
+
+      expect(getTrack).toHaveBeenCalledWith('1');
+      expect(mockPrisma.track.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: { isFavorite: true },
+      });
+      expect(mockPrisma.track.updateMany).toHaveBeenCalledWith({
+        where: { isFavorite: true, id: { notIn: [1] } },
+        data: { isFavorite: false },
+      });
+      expect(result.tracksSynced).toBe(1);
+    });
+
+    it('reports a failing favorite track in errors without blocking the rest', async () => {
+      vi.mocked(getUserLibrary).mockResolvedValue({
+        tracks: [LIB_TRACK],
+        albums: [],
+        artists: [],
+        playlists: [],
+      });
+      vi.mocked(getTrack).mockRejectedValue(new Error('boom'));
+
+      const result = await syncUserLibrary();
+
+      expect(result.tracksSynced).toBe(0);
+      expect(result.errors).toEqual([
+        { type: 'track', deezerId: '1', message: 'failed to sync favorite track' },
+      ]);
     });
 
     it('isolates a failing item: one bad playlist does not block albums, artists or other playlists', async () => {
@@ -401,6 +548,7 @@ describe('sync service', () => {
         playlistsRemoved: 0,
         albumsSynced: 0,
         artistsSynced: 0,
+        tracksSynced: 0,
         errors: [],
       });
     });

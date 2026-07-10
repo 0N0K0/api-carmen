@@ -120,6 +120,11 @@ describe('mapTrack', () => {
     expect(result.bpm).toBeNull();
     expect(result.gain).toBeNull();
   });
+
+  it('sets isFavorite to null (not derivable from the public Deezer REST endpoint)', () => {
+    const result = mapTrack(MOCK_TRACK);
+    expect(result.isFavorite).toBeNull();
+  });
 });
 
 const MOCK_DB_ARTIST = {

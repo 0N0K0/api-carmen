@@ -37,6 +37,7 @@ export function mapTrack(t: DeezerTrack) {
     preview: t.preview ?? null,
     bpm: t.bpm ?? null,
     gain: t.gain ?? null,
+    isFavorite: null,
     artist: mapArtist(t.artist),
     album: {
       id: String(t.album.id),
@@ -122,7 +123,7 @@ type GqlTrack = {
   id: string; title: string; titleShort: string | null; isrc: string | null;
   link: string | null; duration: number; rank: number | null; releaseDate: string | null;
   explicitLyrics: boolean | null; preview: string | null; bpm: number | null;
-  gain: number | null; artist: GqlArtist | null; album: GqlAlbum | null;
+  gain: number | null; isFavorite: boolean | null; artist: GqlArtist | null; album: GqlAlbum | null;
 };
 type GqlAlbum = {
   id: string; title: string; upc: string | null; link: string | null; cover: string | null;
@@ -166,6 +167,7 @@ export function mapPrismaTrack(t: PrismaTrackShape): GqlTrack {
     preview: t.preview,
     bpm: t.bpm,
     gain: t.gain,
+    isFavorite: t.isFavorite,
     artist: t.artist ? mapPrismaArtist(t.artist) : null,
     album: t.album ? mapPrismaAlbum(t.album) : null,
   };

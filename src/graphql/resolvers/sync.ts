@@ -1,5 +1,5 @@
-import { syncAlbum, syncArtist, syncPlaylist } from '../../services/sync';
-import { mapPrismaAlbum, mapPrismaArtist, mapPrismaPlaylist } from './mappers';
+import { syncAlbum, syncArtist, syncFavoriteTracks, syncPlaylist } from '../../services/sync';
+import { mapPrismaAlbum, mapPrismaArtist, mapPrismaPlaylist, mapPrismaTrack } from './mappers';
 
 export const syncResolvers = {
   Mutation: {
@@ -34,6 +34,17 @@ export const syncResolvers = {
     syncArtist: async (_: unknown, args: { deezerId: string; limit?: number }) => {
       const artist = await syncArtist(args.deezerId, args.limit);
       return mapPrismaArtist(artist);
+    },
+
+    /**
+     * Synchronise les tracks favoris Deezer de l'utilisateur dans la base de données.
+     * @param {unknown} _ Parent (non utilisé).
+     * @param {{ limit?: number }} args Arguments de la mutation.
+     * @returns {Promise<object[]>} Tracks favoris mappés au format GraphQL.
+     */
+    syncFavoriteTracks: async (_: unknown, args: { limit?: number }) => {
+      const tracks = await syncFavoriteTracks(args.limit);
+      return tracks.map(mapPrismaTrack);
     },
   },
 };
