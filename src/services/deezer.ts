@@ -489,14 +489,15 @@ export async function getUserPlaylists(limit: number = 25): Promise<PipePlaylist
 
 /**
  * Récupère la bibliothèque complète de l'utilisateur en parallèle. Nécessite `DEEZER_ARL`.
+ * @param {number} [limit=50] Nombre maximum d'éléments par catégorie (tracks, albums, artistes, playlists).
  * @returns {Promise<PipeUserLibrary>} Tracks, albums, artistes et playlists favoris.
  */
-export async function getUserLibrary(): Promise<PipeUserLibrary> {
+export async function getUserLibrary(limit: number = 50): Promise<PipeUserLibrary> {
   const [tracks, albums, artists, playlists] = await Promise.all([
-    getUserTracks(50),
-    getUserAlbums(50),
-    getUserArtists(50),
-    getUserPlaylists(50),
+    getUserTracks(limit),
+    getUserAlbums(limit),
+    getUserArtists(limit),
+    getUserPlaylists(limit),
   ]);
   return { tracks, albums, artists, playlists };
 }

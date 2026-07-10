@@ -447,6 +447,48 @@ describe('deezer service', () => {
       expect(library.artists).toHaveLength(1);
       expect(library.playlists).toHaveLength(1);
     });
+
+    it('getUserLibrary forwards a custom limit to all 4 underlying requests', async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        mockPipeOk({
+          me: {
+            userFavorites: {
+              tracks: { edges: [] },
+              albums: { edges: [] },
+              artists: { edges: [] },
+              playlists: { edges: [] },
+            },
+          },
+        }),
+      );
+
+      await getUserLibrary(200);
+
+      for (const call of vi.mocked(fetch).mock.calls) {
+        const body = JSON.parse((call[1] as RequestInit).body as string);
+        expect(body.variables).toEqual({ first: 200 });
+      }
+    });
+
+    it('getUserLibrary defaults to limit 50', async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        mockPipeOk({
+          me: {
+            userFavorites: {
+              tracks: { edges: [] },
+              albums: { edges: [] },
+              artists: { edges: [] },
+              playlists: { edges: [] },
+            },
+          },
+        }),
+      );
+
+      await getUserLibrary();
+
+      const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string);
+      expect(body.variables).toEqual({ first: 50 });
+    });
   });
 
   // ---------------------------------------------------------------------------

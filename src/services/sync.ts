@@ -1,6 +1,6 @@
 import { getPrismaClient } from '../plugins/prisma';
 import { DeezerAlbum, DeezerArtist, DeezerTrack } from '../types/deezer';
-import { deezerFetchAll, deezerFetchAllFrom, getAlbum, getArtist, getPlaylist } from './deezer';
+import { deezerFetchAll, deezerFetchAllFrom, getAlbum, getArtist, getPlaylist, getUserLibrary } from './deezer';
 
 function toArtistData(a: DeezerArtist) {
   return {
@@ -198,4 +198,63 @@ export async function syncArtist(deezerId: number | string, limit = 50) {
   }
 
   return prisma.artist.findUniqueOrThrow({ where: { id: artist.id } });
+}
+
+export interface SyncLibraryError {
+  type: 'playlist' | 'album' | 'artist';
+  deezerId: string;
+  message: string;
+}
+
+export interface SyncLibrarySummary {
+  playlistsSynced: number;
+  albumsSynced: number;
+  artistsSynced: number;
+  errors: SyncLibraryError[];
+}
+
+/**
+ * Synchronise en une fois toute la bibliothèque Deezer de l'utilisateur (playlists,
+ * albums, artistes favoris) dans la base de données. Nécessite `DEEZER_ARL`.
+ * Chaque élément est synchronisé indépendamment : l'échec d'un élément (playlist,
+ * album ou artiste) n'interrompt pas la synchronisation des autres, il est
+ * simplement consigné dans `errors`.
+ * @param {number} [limit=50] Nombre maximum d'éléments par catégorie à synchroniser.
+ * @returns {Promise<SyncLibrarySummary>} Nombre d'éléments synchronisés par catégorie et erreurs rencontrées.
+ */
+export async function syncUserLibrary(limit = 50): Promise<SyncLibrarySummary> {
+  const library = await getUserLibrary(limit);
+  const errors: SyncLibraryError[] = [];
+  let playlistsSynced = 0;
+  let albumsSynced = 0;
+  let artistsSynced = 0;
+
+  for (const playlist of library.playlists) {
+    try {
+      await syncPlaylist(playlist.id);
+      playlistsSynced += 1;
+    } catch (err) {
+      errors.push({ type: 'playlist', deezerId: playlist.id, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  for (const album of library.albums) {
+    try {
+      await syncAlbum(album.id);
+      albumsSynced += 1;
+    } catch (err) {
+      errors.push({ type: 'album', deezerId: album.id, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  for (const artist of library.artists) {
+    try {
+      await syncArtist(artist.id);
+      artistsSynced += 1;
+    } catch (err) {
+      errors.push({ type: 'artist', deezerId: artist.id, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  return { playlistsSynced, albumsSynced, artistsSynced, errors };
 }
