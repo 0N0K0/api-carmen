@@ -419,7 +419,7 @@ describe('deezer service', () => {
 
     it('getUserPlaylists returns mapped PipePlaylist[]', async () => {
       vi.mocked(fetch).mockResolvedValue(
-        mockPipeOk({ me: { userFavorites: { playlists: { edges: [{ node: PIPE_PLAYLIST_NODE }] } } } }),
+        mockPipeOk({ me: { playlists: { edges: [{ node: PIPE_PLAYLIST_NODE }] } } }),
       );
       const playlists = await getUserPlaylists(5);
       expect(playlists).toHaveLength(1);
@@ -432,7 +432,7 @@ describe('deezer service', () => {
         .mockResolvedValueOnce(mockPipeOk({ me: { userFavorites: { tracks: { edges: [{ node: PIPE_TRACK_NODE }] } } } }))
         .mockResolvedValueOnce(mockPipeOk({ me: { userFavorites: { albums: { edges: [{ node: PIPE_ALBUM_NODE }] } } } }))
         .mockResolvedValueOnce(mockPipeOk({ me: { userFavorites: { artists: { edges: [{ node: PIPE_ARTIST_NODE }] } } } }))
-        .mockResolvedValueOnce(mockPipeOk({ me: { userFavorites: { playlists: { edges: [{ node: PIPE_PLAYLIST_NODE }] } } } }));
+        .mockResolvedValueOnce(mockPipeOk({ me: { playlists: { edges: [{ node: PIPE_PLAYLIST_NODE }] } } }));
 
       const library = await getUserLibrary();
 
@@ -456,8 +456,8 @@ describe('deezer service', () => {
               tracks: { edges: [] },
               albums: { edges: [] },
               artists: { edges: [] },
-              playlists: { edges: [] },
             },
+            playlists: { edges: [] },
           },
         }),
       );
@@ -478,8 +478,8 @@ describe('deezer service', () => {
               tracks: { edges: [] },
               albums: { edges: [] },
               artists: { edges: [] },
-              playlists: { edges: [] },
             },
+            playlists: { edges: [] },
           },
         }),
       );
