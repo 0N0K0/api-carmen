@@ -41,5 +41,5 @@ export const loadTracksByPlaylistId = createGroupBatcher(
       orderBy: { position: 'asc' },
       include: { track: true },
     }),
-  (pt) => pt.playlistId,
+  (pt) => Number(pt.playlistId),
 );
