@@ -353,11 +353,14 @@ query GetFavoriteArtists($first: Int) {
   } } }
 }`;
 
-const Q_GET_FAVORITE_PLAYLISTS = `
-query GetFavoritePlaylists($first: Int) {
-  me { userFavorites { playlists(first: $first) {
+// `me.playlists` (pas `me.userFavorites.playlists`) : ce dernier ne renvoie que les
+// playlists explicitement mises en favori, pas celles possédées par l'utilisateur —
+// pour la plupart des utilisateurs ça retourne 0 résultat alors qu'ils en possèdent des dizaines.
+const Q_GET_MY_PLAYLISTS = `
+query GetMyPlaylists($first: Int) {
+  me { playlists(first: $first) {
     edges { node { id title estimatedTracksCount isFavorite description owner { id name } } }
-  } } }
+  } }
 }`;
 
 // ---------------------------------------------------------------------------
@@ -469,15 +472,16 @@ export async function getUserArtists(limit: number = 25): Promise<PipeFavoriteAr
 }
 
 /**
- * Récupère les playlists favorites de l'utilisateur. Nécessite `DEEZER_ARL`.
+ * Récupère les playlists de l'utilisateur (possédées, pas seulement mises en favori).
+ * Nécessite `DEEZER_ARL`.
  * @param {number} [limit=25] Nombre maximum de playlists.
- * @returns {Promise<PipePlaylist[]>} Liste des playlists favorites.
+ * @returns {Promise<PipePlaylist[]>} Liste des playlists de l'utilisateur.
  */
 export async function getUserPlaylists(limit: number = 25): Promise<PipePlaylist[]> {
   const data = await pipeFetch<{
-    me: { userFavorites: { playlists: PipeConnection<PipePlaylist> } };
-  }>(Q_GET_FAVORITE_PLAYLISTS, 'GetFavoritePlaylists', { first: limit });
-  return data.me.userFavorites.playlists.edges.map((e) => ({
+    me: { playlists: PipeConnection<PipePlaylist> };
+  }>(Q_GET_MY_PLAYLISTS, 'GetMyPlaylists', { first: limit });
+  return data.me.playlists.edges.map((e) => ({
     id: e.node.id,
     title: e.node.title,
     estimatedTracksCount: e.node.estimatedTracksCount ?? null,
