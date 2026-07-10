@@ -46,6 +46,7 @@ const typeDefs = /* GraphQL */ `
     preview: String
     bpm: Float
     gain: Float
+    isFavorite: Boolean
     artist: Artist!
     album: Album!
   }
@@ -182,8 +183,10 @@ const typeDefs = /* GraphQL */ `
 
   type SyncLibrarySummary {
     playlistsSynced: Int!
+    playlistsRemoved: Int!
     albumsSynced: Int!
     artistsSynced: Int!
+    tracksSynced: Int!
     errors: [SyncLibraryError!]!
   }
 
@@ -206,6 +209,7 @@ const typeDefs = /* GraphQL */ `
     syncPlaylist(deezerId: ID!): Playlist!
     syncAlbum(deezerId: ID!): Album!
     syncArtist(deezerId: ID!, limit: Int): Artist!
+    syncFavoriteTracks(limit: Int): [Track!]!
     syncUserLibrary(limit: Int): SyncLibrarySummary!
   }
 `;

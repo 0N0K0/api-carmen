@@ -1,6 +1,15 @@
 import { getPrismaClient } from '../plugins/prisma';
 import { DeezerAlbum, DeezerArtist, DeezerTrack } from '../types/deezer';
-import { deezerFetchAll, deezerFetchAllFrom, getAlbum, getArtist, getPlaylist, getUserLibrary } from './deezer';
+import {
+  deezerFetchAll,
+  deezerFetchAllFrom,
+  getAlbum,
+  getArtist,
+  getPlaylist,
+  getTrack,
+  getUserLibrary,
+  getUserTracks,
+} from './deezer';
 
 function toArtistData(a: DeezerArtist) {
   return {
@@ -130,6 +139,12 @@ export async function syncPlaylist(deezerId: number | string) {
     });
   }
 
+  // Miroir : un track retiré de la playlist côté Deezer doit disparaître localement,
+  // pas juste ne plus être ajouté. Le Track lui-même n'est pas supprimé (catalogue partagé).
+  await prisma.playlistTrack.deleteMany({
+    where: { playlistId: playlist.id, trackId: { notIn: tracks.map((t) => t.id) } },
+  });
+
   return prisma.playlist.findUniqueOrThrow({
     where: { id: playlist.id },
     include: {
@@ -200,24 +215,87 @@ export async function syncArtist(deezerId: number | string, limit = 50) {
   return prisma.artist.findUniqueOrThrow({ where: { id: artist.id } });
 }
 
+/**
+ * Upsert complet (artiste/album/track) d'un favori, re-fetché via l'API REST (`getTrack`)
+ * pour obtenir les données complètes (bpm, gain, isrc...) — la Pipe API ne renvoie qu'un
+ * sous-ensemble de champs — puis marqué `isFavorite: true`.
+ * @param {string} deezerId Identifiant Deezer du track favori.
+ * @returns {Promise<number | null>} Id DB du track synchronisé, ou `null` si l'appel a échoué
+ * (consigné en `console.error`, n'interrompt pas le reste d'un batch).
+ */
+async function persistFavoriteTrack(deezerId: string): Promise<number | null> {
+  try {
+    const track = await getTrack(deezerId);
+    await persistTrack(track);
+    await getPrismaClient().track.update({ where: { id: track.id }, data: { isFavorite: true } });
+    return track.id;
+  } catch (err) {
+    console.error(`[sync] favorite track ${deezerId} failed:`, err);
+    return null;
+  }
+}
+
+/**
+ * Démarque (`isFavorite: false`) les tracks marqués favoris en DB mais absents de la
+ * liste de favoris Deezer courante — jamais supprimés (catalogue partagé, potentiellement
+ * référencé par des playlists synchronisées indépendamment).
+ * Garde-fou : ne démarque rien si `currentFavoriteIds` est vide (réponse Deezer
+ * transitoire/vide ne doit pas être interprétée comme "plus aucun favori").
+ * Basé sur la liste Deezer déclarée, pas sur le succès d'écriture individuel : un favori
+ * dont le re-fetch a échoué ce tour-ci reste marqué favori (pas de faux négatif).
+ * @param {number[]} currentFavoriteIds Ids Deezer actuellement favoris.
+ * @returns {Promise<void>}
+ */
+async function pruneUnfavoritedTracks(currentFavoriteIds: number[]): Promise<void> {
+  if (currentFavoriteIds.length === 0) return;
+  await getPrismaClient().track.updateMany({
+    where: { isFavorite: true, id: { notIn: currentFavoriteIds } },
+    data: { isFavorite: false },
+  });
+}
+
+/**
+ * Synchronise les tracks favoris Deezer de l'utilisateur dans la base de données.
+ * Nécessite `DEEZER_ARL`. Miroir : un track retiré des favoris côté Deezer est démarqué
+ * localement (voir `pruneUnfavoritedTracks`), pas supprimé.
+ * @param {number} [limit=50] Taille de page Pipe API pour la liste des favoris.
+ * @returns {Promise<object[]>} Tracks actuellement favoris, avec artist et album inclus.
+ */
+export async function syncFavoriteTracks(limit = 50) {
+  const favorites = await getUserTracks(limit);
+
+  for (const fav of favorites) {
+    await persistFavoriteTrack(fav.id);
+  }
+  await pruneUnfavoritedTracks(favorites.map((f) => Number(f.id)));
+
+  return getPrismaClient().track.findMany({
+    where: { isFavorite: true },
+    orderBy: { id: 'asc' },
+    include: { artist: true, album: { include: { artist: true } } },
+  });
+}
+
 export interface SyncLibraryError {
-  type: 'playlist' | 'album' | 'artist';
+  type: 'playlist' | 'album' | 'artist' | 'track';
   deezerId: string;
   message: string;
 }
 
 export interface SyncLibrarySummary {
   playlistsSynced: number;
+  playlistsRemoved: number;
   albumsSynced: number;
   artistsSynced: number;
+  tracksSynced: number;
   errors: SyncLibraryError[];
 }
 
 /**
  * Synchronise en une fois toute la bibliothèque Deezer de l'utilisateur (playlists,
- * albums, artistes favoris) dans la base de données. Nécessite `DEEZER_ARL`.
+ * albums, artistes, tracks favoris) dans la base de données. Nécessite `DEEZER_ARL`.
  * Chaque élément est synchronisé indépendamment : l'échec d'un élément (playlist,
- * album ou artiste) n'interrompt pas la synchronisation des autres, il est
+ * album, artiste ou track) n'interrompt pas la synchronisation des autres, il est
  * simplement consigné dans `errors`.
  * @param {number} [limit=50] Nombre maximum d'éléments par catégorie à synchroniser.
  * @returns {Promise<SyncLibrarySummary>} Nombre d'éléments synchronisés par catégorie et erreurs rencontrées.
@@ -228,6 +306,7 @@ export async function syncUserLibrary(limit = 50): Promise<SyncLibrarySummary> {
   let playlistsSynced = 0;
   let albumsSynced = 0;
   let artistsSynced = 0;
+  let tracksSynced = 0;
 
   for (const playlist of library.playlists) {
     try {
@@ -236,6 +315,18 @@ export async function syncUserLibrary(limit = 50): Promise<SyncLibrarySummary> {
     } catch (err) {
       errors.push({ type: 'playlist', deezerId: playlist.id, message: err instanceof Error ? err.message : String(err) });
     }
+  }
+
+  // Miroir : une playlist supprimée (ou plus possédée) côté Deezer doit disparaître
+  // localement. Garde-fou : ne jamais purger sur une liste vide — une réponse Deezer
+  // vide/transitoire ne doit pas être interprétée comme "l'utilisateur n'a plus rien".
+  let playlistsRemoved = 0;
+  if (library.playlists.length > 0) {
+    const currentIds = library.playlists.map((p) => Number(p.id));
+    const deleted = await getPrismaClient().playlist.deleteMany({
+      where: { id: { notIn: currentIds } },
+    });
+    playlistsRemoved = deleted.count;
   }
 
   for (const album of library.albums) {
@@ -256,5 +347,18 @@ export async function syncUserLibrary(limit = 50): Promise<SyncLibrarySummary> {
     }
   }
 
-  return { playlistsSynced, albumsSynced, artistsSynced, errors };
+  for (const track of library.tracks) {
+    const id = await persistFavoriteTrack(track.id);
+    if (id !== null) {
+      tracksSynced += 1;
+    } else {
+      errors.push({ type: 'track', deezerId: track.id, message: 'failed to sync favorite track' });
+    }
+  }
+  // Miroir : un track retiré des favoris côté Deezer est démarqué localement (pas
+  // supprimé). Basé sur la liste Deezer déclarée par `library.tracks`, pas sur le
+  // succès d'écriture ci-dessus (voir pruneUnfavoritedTracks).
+  await pruneUnfavoritedTracks(library.tracks.map((t) => Number(t.id)));
+
+  return { playlistsSynced, playlistsRemoved, albumsSynced, artistsSynced, tracksSynced, errors };
 }

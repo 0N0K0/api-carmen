@@ -376,7 +376,9 @@ type PipeEdge<T> = { node: T };
 type PipeConnection<T> = { edges: PipeEdge<T>[]; pageInfo?: PipePageInfo };
 type PipeContributorNode = { id: string; name: string };
 
-const PIPE_MAX_PAGES = 200;
+// Un power-user peut avoir plusieurs milliers de favoris (ex. 7500+ tracks favoris
+// constaté en réel) — laisser de la marge pour éviter un plafond atteint légitimement.
+const PIPE_MAX_PAGES = 1000;
 
 /**
  * Suit la pagination cursor (Relay-style : `edges` + `pageInfo.hasNextPage`/`endCursor`)
