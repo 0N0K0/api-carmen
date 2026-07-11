@@ -14,6 +14,8 @@ model Artist {
   picture String?
   nbAlbum Int?
   nbFan   Int?
+  // favori Deezer de l'utilisateur (Pipe API)
+  isFavorite Boolean?
 
   albums Album[]
   tracks Track[]
@@ -34,6 +36,8 @@ model Album {
   releaseDate    String?
   recordType     String?
   explicitLyrics Boolean?
+  // favori Deezer de l'utilisateur (Pipe API)
+  isFavorite     Boolean?
 
   artistId Int
   artist   Artist @relation(fields: [artistId], references: [id])

@@ -14,6 +14,7 @@ const typeDefs = /* GraphQL */ `
     picture: String
     nbAlbum: Int
     nbFan: Int
+    isFavorite: Boolean
   }
 
   type Album {
@@ -29,6 +30,7 @@ const typeDefs = /* GraphQL */ `
     releaseDate: String
     recordType: String
     explicitLyrics: Boolean
+    isFavorite: Boolean
     artist: Artist
     tracks: [Track!]
   }
@@ -196,8 +198,8 @@ const typeDefs = /* GraphQL */ `
     album(id: ID!): Album
     playlist(id: ID!): Playlist
     tracks(limit: Int, offset: Int): TrackPage!
-    albums(limit: Int, offset: Int): AlbumPage!
-    artists(limit: Int, offset: Int): ArtistPage!
+    albums(limit: Int, offset: Int, favoritesOnly: Boolean): AlbumPage!
+    artists(limit: Int, offset: Int, favoritesOnly: Boolean): ArtistPage!
     playlists(limit: Int, offset: Int): PlaylistPage!
     search(query: String!, type: SearchType, limit: Int): SearchResults!
     currentUser: CurrentUser

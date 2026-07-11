@@ -301,6 +301,7 @@ export interface SyncLibrarySummary {
  * @returns {Promise<SyncLibrarySummary>} Nombre d'éléments synchronisés par catégorie et erreurs rencontrées.
  */
 export async function syncUserLibrary(limit = 50): Promise<SyncLibrarySummary> {
+  const prisma = getPrismaClient();
   const library = await getUserLibrary(limit);
   const errors: SyncLibraryError[] = [];
   let playlistsSynced = 0;
@@ -323,7 +324,7 @@ export async function syncUserLibrary(limit = 50): Promise<SyncLibrarySummary> {
   let playlistsRemoved = 0;
   if (library.playlists.length > 0) {
     const currentIds = library.playlists.map((p) => Number(p.id));
-    const deleted = await getPrismaClient().playlist.deleteMany({
+    const deleted = await prisma.playlist.deleteMany({
       where: { id: { notIn: currentIds } },
     });
     playlistsRemoved = deleted.count;
@@ -331,20 +332,38 @@ export async function syncUserLibrary(limit = 50): Promise<SyncLibrarySummary> {
 
   for (const album of library.albums) {
     try {
-      await syncAlbum(album.id);
+      const synced = await syncAlbum(album.id);
+      await prisma.album.update({ where: { id: synced.id }, data: { isFavorite: true } });
       albumsSynced += 1;
     } catch (err) {
       errors.push({ type: 'album', deezerId: album.id, message: err instanceof Error ? err.message : String(err) });
     }
   }
+  // Miroir : un album retiré des favoris côté Deezer est démarqué localement (pas
+  // supprimé — catalogue partagé, potentiellement référencé par des tracks synchronisés
+  // indépendamment). Garde-fou sur liste vide, même logique que pour les tracks favoris.
+  if (library.albums.length > 0) {
+    await prisma.album.updateMany({
+      where: { isFavorite: true, id: { notIn: library.albums.map((a) => Number(a.id)) } },
+      data: { isFavorite: false },
+    });
+  }
 
   for (const artist of library.artists) {
     try {
-      await syncArtist(artist.id);
+      const synced = await syncArtist(artist.id);
+      await prisma.artist.update({ where: { id: synced.id }, data: { isFavorite: true } });
       artistsSynced += 1;
     } catch (err) {
       errors.push({ type: 'artist', deezerId: artist.id, message: err instanceof Error ? err.message : String(err) });
     }
+  }
+  // Miroir : même logique pour les artistes retirés des favoris.
+  if (library.artists.length > 0) {
+    await prisma.artist.updateMany({
+      where: { isFavorite: true, id: { notIn: library.artists.map((a) => Number(a.id)) } },
+      data: { isFavorite: false },
+    });
   }
 
   for (const track of library.tracks) {
