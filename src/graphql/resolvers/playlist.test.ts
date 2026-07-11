@@ -8,7 +8,7 @@ vi.mock('../../services/deezer', () => ({
 
 const mockPrisma = {
   playlist: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn() },
-  playlistTrack: { findMany: vi.fn() },
+  playlistTrack: { findMany: vi.fn(), count: vi.fn() },
 };
 vi.mock('../../plugins/prisma', () => ({
   getPrismaClient: () => mockPrisma,
@@ -204,21 +204,38 @@ describe('Query.playlists', () => {
 describe('Playlist.tracks', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('returns parent.tracks directly when already resolved (Deezer fallback)', async () => {
+  it('paginates parent.tracks in memory when already resolved (Deezer fallback)', async () => {
     const mappedPlaylist = mapPlaylist(MOCK_PLAYLIST);
-    const result = await playlistResolvers.Playlist.tracks(mappedPlaylist);
+    const result = await playlistResolvers.Playlist.tracks(mappedPlaylist, { limit: 10, offset: 0 });
     expect(mockPrisma.playlistTrack.findMany).not.toHaveBeenCalled();
-    expect(result).toBe(mappedPlaylist.tracks);
+    expect(result.items).toEqual(mappedPlaylist.tracks);
+    expect(result.pagination).toEqual({ offset: 0, limit: 10, total: mappedPlaylist.tracks?.length });
   });
 
-  it('loads via PlaylistTrack ordered by position when not already resolved (DB row)', async () => {
+  it('loads a page via PlaylistTrack ordered by position when not already resolved (DB row)', async () => {
     mockPrisma.playlistTrack.findMany.mockResolvedValue([
       { playlistId: 30, trackId: 1, position: 1, timeAdd: null, track: { id: 1, title: 'Track One' } },
     ]);
-    const result = await playlistResolvers.Playlist.tracks(MOCK_DB_PLAYLIST);
+    mockPrisma.playlistTrack.count.mockResolvedValue(53);
+
+    const result = await playlistResolvers.Playlist.tracks(MOCK_DB_PLAYLIST, { limit: 10, offset: 0 });
+
     expect(mockPrisma.playlistTrack.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { playlistId: { in: [30] } }, orderBy: { position: 'asc' } }),
+      expect.objectContaining({ where: { playlistId: 30 }, orderBy: { position: 'asc' }, skip: 0, take: 10 }),
     );
-    expect(result).toEqual([{ id: 1, title: 'Track One' }]);
+    expect(mockPrisma.playlistTrack.count).toHaveBeenCalledWith({ where: { playlistId: 30 } });
+    expect(result.items).toEqual([{ id: 1, title: 'Track One' }]);
+    expect(result.pagination).toEqual({ offset: 0, limit: 10, total: 53 });
+  });
+
+  it('defaults limit and offset when not provided', async () => {
+    mockPrisma.playlistTrack.findMany.mockResolvedValue([]);
+    mockPrisma.playlistTrack.count.mockResolvedValue(0);
+
+    await playlistResolvers.Playlist.tracks(MOCK_DB_PLAYLIST, {});
+
+    expect(mockPrisma.playlistTrack.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 0, take: 20 }),
+    );
   });
 });

@@ -65,7 +65,7 @@ const typeDefs = /* GraphQL */ `
     link: String
     picture: String
     checksum: String
-    tracks: [Track!]
+    tracks(limit: Int, offset: Int): TrackPage!
   }
 
   type Folder {

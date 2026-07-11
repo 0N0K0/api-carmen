@@ -2,7 +2,6 @@ import { getPlaylist } from '../../services/deezer';
 import { getPrismaClient } from '../../plugins/prisma';
 import { mapPlaylist } from './mappers';
 import { paginate, parseDbId, sortDirection } from './pagination';
-import { loadTracksByPlaylistId } from './loaders';
 
 export { mapPlaylist };
 
@@ -60,15 +59,39 @@ export const playlistResolvers = {
     id: (parent: PlaylistParent) => String(parent.id),
 
     /**
-     * Résout les tracks d'une playlist : déjà présents (résultat Deezer) sinon chargés depuis
-     * Prisma via `PlaylistTrack`, triés par position, quelle que soit la profondeur de la requête.
+     * Résout les tracks d'une playlist, paginés et triés par position : déjà présents
+     * (résultat Deezer, paginés en mémoire) sinon chargés depuis Prisma via `PlaylistTrack`,
+     * quelle que soit la profondeur de la requête.
      * @param {PlaylistParent} parent Playlist parent (ligne Prisma ou playlist Deezer mappée).
-     * @returns {Promise<unknown>} Tracks de la playlist.
+     * @param {{ limit?: number; offset?: number }} args Arguments de pagination.
+     * @returns {Promise<object>} Page de tracks avec pagination.
      */
-    tracks: async (parent: PlaylistParent) => {
-      if ('tracks' in parent) return parent.tracks;
-      const rows = await loadTracksByPlaylistId(Number(parent.id));
-      return rows.map((pt) => pt.track);
+    tracks: async (parent: PlaylistParent, args: { limit?: number; offset?: number }) => {
+      if ('tracks' in parent) {
+        const all = (parent.tracks as unknown[] | null) ?? [];
+        return paginate(
+          args,
+          (limit, offset) => Promise.resolve(all.slice(offset, offset + limit)),
+          () => Promise.resolve(all.length),
+        );
+      }
+
+      const prisma = getPrismaClient();
+      const playlistId = Number(parent.id);
+      return paginate(
+        args,
+        (limit, offset) =>
+          prisma.playlistTrack
+            .findMany({
+              where: { playlistId },
+              orderBy: { position: 'asc' },
+              skip: offset,
+              take: limit,
+              include: { track: true },
+            })
+            .then((rows) => rows.map((pt) => pt.track)),
+        () => prisma.playlistTrack.count({ where: { playlistId } }),
+      );
     },
   },
 };

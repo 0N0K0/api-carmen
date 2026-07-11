@@ -29,17 +29,3 @@ export const loadTracksByAlbumId = createGroupBatcher(
     }),
   (t) => t.albumId,
 );
-
-/**
- * Charge les tracks d'une playlist (triés par position), en regroupant les appels concurrents
- * en un seul `findMany` sur `PlaylistTrack`.
- */
-export const loadTracksByPlaylistId = createGroupBatcher(
-  (playlistIds: number[]) =>
-    getPrismaClient().playlistTrack.findMany({
-      where: { playlistId: { in: playlistIds } },
-      orderBy: { position: 'asc' },
-      include: { track: true },
-    }),
-  (pt) => Number(pt.playlistId),
-);
