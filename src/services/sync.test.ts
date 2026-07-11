@@ -210,6 +210,51 @@ describe('sync service', () => {
     });
   });
 
+  describe('upsert data hygiene: a lean re-sync must not erase previously-known fields', () => {
+    it('does not overwrite an existing artist picture with null when the artist comes from a lean endpoint (no picture field)', async () => {
+      const { picture: _picture, ...leanArtist } = MOCK_ARTIST;
+      const trackWithLeanArtist: DeezerTrack = { ...MOCK_TRACK, artist: leanArtist as DeezerArtist };
+      vi.mocked(getPlaylist).mockResolvedValue(MOCK_PLAYLIST);
+      vi.mocked(deezerFetchAll).mockResolvedValue([trackWithLeanArtist]);
+
+      await syncPlaylist(30);
+
+      const updateArg = mockPrisma.artist.upsert.mock.calls[0][0].update;
+      expect(updateArg).not.toHaveProperty('picture');
+    });
+
+    it('still writes picture when the endpoint does provide one', async () => {
+      vi.mocked(getPlaylist).mockResolvedValue(MOCK_PLAYLIST);
+      vi.mocked(deezerFetchAll).mockResolvedValue([MOCK_TRACK]);
+
+      await syncPlaylist(30);
+
+      const updateArg = mockPrisma.artist.upsert.mock.calls[0][0].update;
+      expect(updateArg).toHaveProperty('picture', '');
+    });
+
+    it('does not overwrite an existing track isrc with null when the track comes from a lean endpoint (no isrc field, e.g. /artist/{id}/top)', async () => {
+      vi.mocked(getPlaylist).mockResolvedValue(MOCK_PLAYLIST);
+      vi.mocked(deezerFetchAll).mockResolvedValue([MOCK_TRACK]); // MOCK_TRACK has no isrc field at all
+
+      await syncPlaylist(30);
+
+      const updateArg = mockPrisma.track.upsert.mock.calls[0][0].update;
+      expect(updateArg).not.toHaveProperty('isrc');
+    });
+
+    it('still writes isrc when the endpoint does provide one', async () => {
+      const trackWithIsrc: DeezerTrack = { ...MOCK_TRACK, isrc: 'FRXXX0000001' };
+      vi.mocked(getPlaylist).mockResolvedValue(MOCK_PLAYLIST);
+      vi.mocked(deezerFetchAll).mockResolvedValue([trackWithIsrc]);
+
+      await syncPlaylist(30);
+
+      const updateArg = mockPrisma.track.upsert.mock.calls[0][0].update;
+      expect(updateArg).toHaveProperty('isrc', 'FRXXX0000001');
+    });
+  });
+
   describe('syncAlbum', () => {
     it('upserts artist, album and each track', async () => {
       const albumWithArtist: DeezerAlbum = { ...MOCK_ALBUM, artist: MOCK_ARTIST };
