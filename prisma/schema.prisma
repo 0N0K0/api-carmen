@@ -18,6 +18,10 @@ model Artist {
   nbFan   Int?
   // favori Deezer de l'utilisateur (Pipe API)
   isFavorite Boolean?
+  // épinglage local Carmen — indépendant de Deezer
+  isPinned   Boolean  @default(false)
+  // rang dans l'ordre manuel unifié des pins (tous types confondus) — null si pas épinglé
+  pinnedOrder Int?
 
   albums Album[]
   tracks Track[]
@@ -42,6 +46,10 @@ model Album {
   explicitLyrics Boolean?
   // favori Deezer de l'utilisateur (Pipe API)
   isFavorite     Boolean?
+  // épinglage local Carmen — indépendant de Deezer
+  isPinned       Boolean  @default(false)
+  // rang dans l'ordre manuel unifié des pins (tous types confondus) — null si pas épinglé
+  pinnedOrder    Int?
 
   artistId Int
   artist   Artist @relation(fields: [artistId], references: [id])
@@ -129,6 +137,10 @@ model Playlist {
   // base URL — append ?size=small|medium|big|xl
   picture       String?
   checksum      String?
+  // épinglage local Carmen — indépendant de Deezer
+  isPinned      Boolean  @default(false)
+  // rang dans l'ordre manuel unifié des pins (tous types confondus) — null si pas épinglé
+  pinnedOrder   Int?
 
   folderId Int?
   folder   Folder? @relation(fields: [folderId], references: [id])

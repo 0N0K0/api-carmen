@@ -33,17 +33,21 @@ export const playlistResolvers = {
     /**
      * Liste les playlists synchronisées en DB, paginées, triées par titre.
      * @param {unknown} _ Parent (non utilisé).
-     * @param {{ limit?: number; offset?: number; orderBy?: 'ASC' | 'DESC' }} args Arguments de pagination et tri.
+     * @param {{ limit?: number; offset?: number; pinnedOnly?: boolean; orderBy?: 'ASC' | 'DESC' }} args Arguments de pagination, filtre et tri.
      * @returns {Promise<object>} Page de playlists avec pagination.
      */
-    playlists: async (_: unknown, args: { limit?: number; offset?: number; orderBy?: 'ASC' | 'DESC' }) => {
+    playlists: async (
+      _: unknown,
+      args: { limit?: number; offset?: number; pinnedOnly?: boolean; orderBy?: 'ASC' | 'DESC' },
+    ) => {
       const prisma = getPrismaClient();
+      const where = args.pinnedOnly ? { isPinned: true } : {};
       const direction = sortDirection(args.orderBy);
       return paginate(
         args,
         (limit, offset) =>
-          prisma.playlist.findMany({ skip: offset, take: limit, orderBy: { title: direction } }),
-        () => prisma.playlist.count(),
+          prisma.playlist.findMany({ where, skip: offset, take: limit, orderBy: { title: direction } }),
+        () => prisma.playlist.count({ where }),
       );
     },
   },

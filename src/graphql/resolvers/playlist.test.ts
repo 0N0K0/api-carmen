@@ -178,6 +178,18 @@ describe('Query.playlists', () => {
     );
   });
 
+  it('filters by isPinned when pinnedOnly is true', async () => {
+    mockPrisma.playlist.findMany.mockResolvedValue([]);
+    mockPrisma.playlist.count.mockResolvedValue(0);
+
+    await playlistResolvers.Query.playlists(undefined, { pinnedOnly: true });
+
+    expect(mockPrisma.playlist.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { isPinned: true } }),
+    );
+    expect(mockPrisma.playlist.count).toHaveBeenCalledWith({ where: { isPinned: true } });
+  });
+
   it('sorts by title ascending by default', async () => {
     mockPrisma.playlist.findMany.mockResolvedValue([]);
     mockPrisma.playlist.count.mockResolvedValue(0);

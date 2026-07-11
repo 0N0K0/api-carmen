@@ -202,6 +202,17 @@ describe('Query.albums', () => {
     );
   });
 
+  it('filters by isPinned when pinnedOnly is true', async () => {
+    mockPrisma.album.findMany.mockResolvedValue([]);
+    mockPrisma.album.count.mockResolvedValue(0);
+
+    await albumResolvers.Query.albums(undefined, { pinnedOnly: true });
+
+    expect(mockPrisma.album.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { isPinned: true } }),
+    );
+  });
+
   it('sorts by title ascending by default', async () => {
     mockPrisma.album.findMany.mockResolvedValue([]);
     mockPrisma.album.count.mockResolvedValue(0);

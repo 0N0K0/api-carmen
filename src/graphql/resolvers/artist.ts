@@ -31,15 +31,18 @@ export const artistResolvers = {
     /**
      * Liste les artistes synchronisés en DB, paginés, triés par nom.
      * @param {unknown} _ Parent (non utilisé).
-     * @param {{ limit?: number; offset?: number; favoritesOnly?: boolean; orderBy?: 'ASC' | 'DESC' }} args Arguments de pagination, filtre et tri.
+     * @param {{ limit?: number; offset?: number; favoritesOnly?: boolean; pinnedOnly?: boolean; orderBy?: 'ASC' | 'DESC' }} args Arguments de pagination, filtre et tri.
      * @returns {Promise<object>} Page d'artistes avec pagination.
      */
     artists: async (
       _: unknown,
-      args: { limit?: number; offset?: number; favoritesOnly?: boolean; orderBy?: 'ASC' | 'DESC' },
+      args: { limit?: number; offset?: number; favoritesOnly?: boolean; pinnedOnly?: boolean; orderBy?: 'ASC' | 'DESC' },
     ) => {
       const prisma = getPrismaClient();
-      const where = args.favoritesOnly ? { isFavorite: true } : {};
+      const where = {
+        ...(args.favoritesOnly ? { isFavorite: true } : {}),
+        ...(args.pinnedOnly ? { isPinned: true } : {}),
+      };
       const direction = sortDirection(args.orderBy);
       return paginate(
         args,
