@@ -197,6 +197,14 @@ const typeDefs = /* GraphQL */ `
     errors: [SyncLibraryError!]!
   }
 
+  type LibraryStats {
+    tracksTotal: Int!
+    favoriteTracksTotal: Int!
+    playlistsTotal: Int!
+    favoriteArtistsTotal: Int!
+    favoriteAlbumsTotal: Int!
+  }
+
   type Query {
     track(id: ID!): Track
     artist(id: ID!): Artist
@@ -209,6 +217,7 @@ const typeDefs = /* GraphQL */ `
     search(query: String!, type: SearchType, limit: Int): SearchResults!
     currentUser: CurrentUser
     userLibrary(limit: Int): UserLibrary!
+    libraryStats: LibraryStats!
   }
 
   type Mutation {
