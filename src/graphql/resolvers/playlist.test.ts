@@ -177,6 +177,28 @@ describe('Query.playlists', () => {
       expect.objectContaining({ skip: 0, take: 20 }),
     );
   });
+
+  it('sorts by title ascending by default', async () => {
+    mockPrisma.playlist.findMany.mockResolvedValue([]);
+    mockPrisma.playlist.count.mockResolvedValue(0);
+
+    await playlistResolvers.Query.playlists(undefined, {});
+
+    expect(mockPrisma.playlist.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { title: 'asc' } }),
+    );
+  });
+
+  it('sorts by title descending when orderBy is DESC', async () => {
+    mockPrisma.playlist.findMany.mockResolvedValue([]);
+    mockPrisma.playlist.count.mockResolvedValue(0);
+
+    await playlistResolvers.Query.playlists(undefined, { orderBy: 'DESC' });
+
+    expect(mockPrisma.playlist.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { title: 'desc' } }),
+    );
+  });
 });
 
 describe('Playlist.tracks', () => {

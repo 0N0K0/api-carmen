@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { paginate, parseDbId } from './pagination';
+import { paginate, parseDbId, sortDirection } from './pagination';
 
 describe('parseDbId', () => {
   it('parses a numeric string', () => {
@@ -16,6 +16,20 @@ describe('parseDbId', () => {
 
   it('returns null for a non-numeric string', () => {
     expect(parseDbId('abc')).toBeNull();
+  });
+});
+
+describe('sortDirection', () => {
+  it('defaults to asc when undefined', () => {
+    expect(sortDirection(undefined)).toBe('asc');
+  });
+
+  it('maps ASC to asc', () => {
+    expect(sortDirection('ASC')).toBe('asc');
+  });
+
+  it('maps DESC to desc', () => {
+    expect(sortDirection('DESC')).toBe('desc');
   });
 });
 

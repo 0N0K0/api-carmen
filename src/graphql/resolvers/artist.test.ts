@@ -149,4 +149,26 @@ describe('Query.artists', () => {
       expect.objectContaining({ where: {} }),
     );
   });
+
+  it('sorts by name ascending by default', async () => {
+    mockPrisma.artist.findMany.mockResolvedValue([]);
+    mockPrisma.artist.count.mockResolvedValue(0);
+
+    await artistResolvers.Query.artists(undefined, {});
+
+    expect(mockPrisma.artist.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { name: 'asc' } }),
+    );
+  });
+
+  it('sorts by name descending when orderBy is DESC', async () => {
+    mockPrisma.artist.findMany.mockResolvedValue([]);
+    mockPrisma.artist.count.mockResolvedValue(0);
+
+    await artistResolvers.Query.artists(undefined, { orderBy: 'DESC' });
+
+    expect(mockPrisma.artist.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { name: 'desc' } }),
+    );
+  });
 });
