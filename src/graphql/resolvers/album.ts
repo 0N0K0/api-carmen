@@ -34,15 +34,16 @@ export const albumResolvers = {
     /**
      * Liste les albums synchronisés en DB, paginés.
      * @param {unknown} _ Parent (non utilisé).
-     * @param {{ limit?: number; offset?: number }} args Arguments de pagination.
+     * @param {{ limit?: number; offset?: number; favoritesOnly?: boolean }} args Arguments de pagination et filtre.
      * @returns {Promise<object>} Page d'albums avec pagination.
      */
-    albums: async (_: unknown, args: { limit?: number; offset?: number }) => {
+    albums: async (_: unknown, args: { limit?: number; offset?: number; favoritesOnly?: boolean }) => {
       const prisma = getPrismaClient();
+      const where = args.favoritesOnly ? { isFavorite: true } : {};
       return paginate(
         args,
-        (limit, offset) => prisma.album.findMany({ skip: offset, take: limit, orderBy: { id: 'asc' } }),
-        () => prisma.album.count(),
+        (limit, offset) => prisma.album.findMany({ where, skip: offset, take: limit, orderBy: { id: 'asc' } }),
+        () => prisma.album.count({ where }),
       );
     },
   },

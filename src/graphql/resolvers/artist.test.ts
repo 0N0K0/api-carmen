@@ -40,6 +40,7 @@ describe('mapArtist', () => {
       picture: 'https://api.deezer.com/artist/10/image',
       nbAlbum: 8,
       nbFan: 5000000,
+      isFavorite: null,
     });
   });
 
@@ -123,6 +124,29 @@ describe('Query.artists', () => {
 
     expect(mockPrisma.artist.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ skip: 0, take: 20 }),
+    );
+  });
+
+  it('filters by isFavorite when favoritesOnly is true', async () => {
+    mockPrisma.artist.findMany.mockResolvedValue([MOCK_DB_ARTIST]);
+    mockPrisma.artist.count.mockResolvedValue(1);
+
+    await artistResolvers.Query.artists(undefined, { favoritesOnly: true });
+
+    expect(mockPrisma.artist.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { isFavorite: true } }),
+    );
+    expect(mockPrisma.artist.count).toHaveBeenCalledWith({ where: { isFavorite: true } });
+  });
+
+  it('does not filter when favoritesOnly is absent or false', async () => {
+    mockPrisma.artist.findMany.mockResolvedValue([]);
+    mockPrisma.artist.count.mockResolvedValue(0);
+
+    await artistResolvers.Query.artists(undefined, {});
+
+    expect(mockPrisma.artist.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: {} }),
     );
   });
 });

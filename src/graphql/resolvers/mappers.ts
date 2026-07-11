@@ -14,6 +14,7 @@ export function mapArtist(a: DeezerArtist) {
     picture: a.picture ?? null,
     nbAlbum: a.nb_album ?? null,
     nbFan: a.nb_fan ?? null,
+    isFavorite: null,
   };
 }
 
@@ -52,6 +53,7 @@ export function mapTrack(t: DeezerTrack) {
       releaseDate: null,
       recordType: null,
       explicitLyrics: null,
+      isFavorite: null,
       artist: null,
       tracks: null,
     },
@@ -77,6 +79,7 @@ export function mapAlbum(a: DeezerAlbum) {
     releaseDate: a.release_date ?? null,
     recordType: a.record_type ?? null,
     explicitLyrics: a.explicit_lyrics ?? null,
+    isFavorite: null,
     artist: a.artist ? mapArtist(a.artist) : null,
     tracks: a.tracks?.data.map(mapTrack) ?? null,
   };
@@ -117,7 +120,7 @@ type PrismaPlaylistShape = Playlist & {
 
 type GqlArtist = {
   id: string; name: string; link: string | null; picture: string | null;
-  nbAlbum: number | null; nbFan: number | null;
+  nbAlbum: number | null; nbFan: number | null; isFavorite: boolean | null;
 };
 type GqlTrack = {
   id: string; title: string; titleShort: string | null; isrc: string | null;
@@ -129,7 +132,7 @@ type GqlAlbum = {
   id: string; title: string; upc: string | null; link: string | null; cover: string | null;
   label: string | null; nbTracks: number | null; duration: number | null; fans: number | null;
   releaseDate: string | null; recordType: string | null; explicitLyrics: boolean | null;
-  artist: GqlArtist | null; tracks: GqlTrack[] | null;
+  isFavorite: boolean | null; artist: GqlArtist | null; tracks: GqlTrack[] | null;
 };
 
 /**
@@ -145,6 +148,7 @@ export function mapPrismaArtist(a: PrismaArtistShape): GqlArtist {
     picture: a.picture,
     nbAlbum: a.nbAlbum,
     nbFan: a.nbFan,
+    isFavorite: a.isFavorite,
   };
 }
 
@@ -192,6 +196,7 @@ export function mapPrismaAlbum(a: PrismaAlbumShape): GqlAlbum {
     releaseDate: a.releaseDate,
     recordType: a.recordType,
     explicitLyrics: a.explicitLyrics,
+    isFavorite: a.isFavorite,
     artist: a.artist ? mapPrismaArtist(a.artist) : null,
     tracks: a.tracks?.map(mapPrismaTrack) ?? null,
   };

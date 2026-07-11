@@ -178,6 +178,29 @@ describe('Query.albums', () => {
       expect.objectContaining({ skip: 0, take: 20 }),
     );
   });
+
+  it('filters by isFavorite when favoritesOnly is true', async () => {
+    mockPrisma.album.findMany.mockResolvedValue([MOCK_DB_ALBUM]);
+    mockPrisma.album.count.mockResolvedValue(1);
+
+    await albumResolvers.Query.albums(undefined, { favoritesOnly: true });
+
+    expect(mockPrisma.album.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { isFavorite: true } }),
+    );
+    expect(mockPrisma.album.count).toHaveBeenCalledWith({ where: { isFavorite: true } });
+  });
+
+  it('does not filter when favoritesOnly is absent or false', async () => {
+    mockPrisma.album.findMany.mockResolvedValue([]);
+    mockPrisma.album.count.mockResolvedValue(0);
+
+    await albumResolvers.Query.albums(undefined, {});
+
+    expect(mockPrisma.album.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: {} }),
+    );
+  });
 });
 
 describe('Album.artist', () => {

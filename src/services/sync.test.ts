@@ -13,8 +13,8 @@ vi.mock('./deezer', () => ({
 }));
 
 const mockPrisma = {
-  artist: { upsert: vi.fn(), findUniqueOrThrow: vi.fn() },
-  album: { upsert: vi.fn(), findUniqueOrThrow: vi.fn() },
+  artist: { upsert: vi.fn(), findUniqueOrThrow: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+  album: { upsert: vi.fn(), findUniqueOrThrow: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
   track: { upsert: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findMany: vi.fn() },
   playlist: { upsert: vi.fn(), findUniqueOrThrow: vi.fn(), deleteMany: vi.fn() },
   playlistTrack: { upsert: vi.fn(), deleteMany: vi.fn() },
@@ -92,6 +92,10 @@ describe('sync service', () => {
     mockPrisma.track.update.mockResolvedValue({});
     mockPrisma.track.updateMany.mockResolvedValue({ count: 0 });
     mockPrisma.track.findMany.mockResolvedValue([]);
+    mockPrisma.album.update.mockResolvedValue({});
+    mockPrisma.album.updateMany.mockResolvedValue({ count: 0 });
+    mockPrisma.artist.update.mockResolvedValue({});
+    mockPrisma.artist.updateMany.mockResolvedValue({ count: 0 });
   });
 
   describe('syncPlaylist', () => {
@@ -452,6 +456,55 @@ describe('sync service', () => {
       await syncUserLibrary(200);
 
       expect(getUserLibrary).toHaveBeenCalledWith(200);
+    });
+
+    it('marks synced albums and artists as favorite', async () => {
+      vi.mocked(getUserLibrary).mockResolvedValue({
+        tracks: [],
+        albums: [LIB_ALBUM],
+        artists: [LIB_ARTIST],
+        playlists: [],
+      });
+
+      await syncUserLibrary();
+
+      expect(mockPrisma.album.update).toHaveBeenCalledWith({
+        where: { id: 20 },
+        data: { isFavorite: true },
+      });
+      expect(mockPrisma.artist.update).toHaveBeenCalledWith({
+        where: { id: 10 },
+        data: { isFavorite: true },
+      });
+    });
+
+    it('mirrors deletions: unmarks albums and artists no longer in the current favorites', async () => {
+      vi.mocked(getUserLibrary).mockResolvedValue({
+        tracks: [],
+        albums: [LIB_ALBUM],
+        artists: [LIB_ARTIST],
+        playlists: [],
+      });
+
+      await syncUserLibrary();
+
+      expect(mockPrisma.album.updateMany).toHaveBeenCalledWith({
+        where: { isFavorite: true, id: { notIn: [20] } },
+        data: { isFavorite: false },
+      });
+      expect(mockPrisma.artist.updateMany).toHaveBeenCalledWith({
+        where: { isFavorite: true, id: { notIn: [10] } },
+        data: { isFavorite: false },
+      });
+    });
+
+    it('never unmarks albums or artists when their fetched favorites list is empty', async () => {
+      vi.mocked(getUserLibrary).mockResolvedValue({ tracks: [], albums: [], artists: [], playlists: [] });
+
+      await syncUserLibrary();
+
+      expect(mockPrisma.album.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.artist.updateMany).not.toHaveBeenCalled();
     });
 
     it('syncs favorite tracks and mirrors unfavorited ones', async () => {

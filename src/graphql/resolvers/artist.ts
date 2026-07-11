@@ -31,15 +31,16 @@ export const artistResolvers = {
     /**
      * Liste les artistes synchronisés en DB, paginés.
      * @param {unknown} _ Parent (non utilisé).
-     * @param {{ limit?: number; offset?: number }} args Arguments de pagination.
+     * @param {{ limit?: number; offset?: number; favoritesOnly?: boolean }} args Arguments de pagination et filtre.
      * @returns {Promise<object>} Page d'artistes avec pagination.
      */
-    artists: async (_: unknown, args: { limit?: number; offset?: number }) => {
+    artists: async (_: unknown, args: { limit?: number; offset?: number; favoritesOnly?: boolean }) => {
       const prisma = getPrismaClient();
+      const where = args.favoritesOnly ? { isFavorite: true } : {};
       return paginate(
         args,
-        (limit, offset) => prisma.artist.findMany({ skip: offset, take: limit, orderBy: { id: 'asc' } }),
-        () => prisma.artist.count(),
+        (limit, offset) => prisma.artist.findMany({ where, skip: offset, take: limit, orderBy: { id: 'asc' } }),
+        () => prisma.artist.count({ where }),
       );
     },
   },
