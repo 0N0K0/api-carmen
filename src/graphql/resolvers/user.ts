@@ -1,4 +1,5 @@
 import { getCurrentUser, getUserLibrary } from '../../services/deezer';
+import { getPrismaClient } from '../../plugins/prisma';
 import { syncUserLibrary } from '../../services/sync';
 
 export const userResolvers = {
@@ -24,6 +25,24 @@ export const userResolvers = {
      */
     userLibrary: async (_: unknown, args: { limit?: number }) => {
       return getUserLibrary(args.limit);
+    },
+
+    /**
+     * Compte, sans charger les données, ce qu'il y a en DB : tracks (total et favoris),
+     * playlists, artistes favoris, albums favoris.
+     * @returns {Promise<object>} Les cinq compteurs.
+     */
+    libraryStats: async () => {
+      const prisma = getPrismaClient();
+      const [tracksTotal, favoriteTracksTotal, playlistsTotal, favoriteArtistsTotal, favoriteAlbumsTotal] =
+        await Promise.all([
+          prisma.track.count(),
+          prisma.track.count({ where: { isFavorite: true } }),
+          prisma.playlist.count(),
+          prisma.artist.count({ where: { isFavorite: true } }),
+          prisma.album.count({ where: { isFavorite: true } }),
+        ]);
+      return { tracksTotal, favoriteTracksTotal, playlistsTotal, favoriteArtistsTotal, favoriteAlbumsTotal };
     },
   },
 
