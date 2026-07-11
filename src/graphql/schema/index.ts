@@ -203,6 +203,7 @@ const typeDefs = /* GraphQL */ `
     playlistsTotal: Int!
     favoriteArtistsTotal: Int!
     favoriteAlbumsTotal: Int!
+    totalDurationMs: Float!
   }
 
   type Query {

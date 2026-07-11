@@ -29,20 +29,36 @@ export const userResolvers = {
 
     /**
      * Compte, sans charger les données, ce qu'il y a en DB : tracks (total et favoris),
-     * playlists, artistes favoris, albums favoris.
-     * @returns {Promise<object>} Les cinq compteurs.
+     * playlists, artistes favoris, albums favoris, et la durée totale de tous les tracks
+     * synchronisés (`Track.duration` est en secondes côté DB/Deezer, converti en ms).
+     * @returns {Promise<object>} Les cinq compteurs et la durée totale en ms.
      */
     libraryStats: async () => {
       const prisma = getPrismaClient();
-      const [tracksTotal, favoriteTracksTotal, playlistsTotal, favoriteArtistsTotal, favoriteAlbumsTotal] =
-        await Promise.all([
-          prisma.track.count(),
-          prisma.track.count({ where: { isFavorite: true } }),
-          prisma.playlist.count(),
-          prisma.artist.count({ where: { isFavorite: true } }),
-          prisma.album.count({ where: { isFavorite: true } }),
-        ]);
-      return { tracksTotal, favoriteTracksTotal, playlistsTotal, favoriteArtistsTotal, favoriteAlbumsTotal };
+      const [
+        tracksTotal,
+        favoriteTracksTotal,
+        playlistsTotal,
+        favoriteArtistsTotal,
+        favoriteAlbumsTotal,
+        durationSum,
+      ] = await Promise.all([
+        prisma.track.count(),
+        prisma.track.count({ where: { isFavorite: true } }),
+        prisma.playlist.count(),
+        prisma.artist.count({ where: { isFavorite: true } }),
+        prisma.album.count({ where: { isFavorite: true } }),
+        prisma.track.aggregate({ _sum: { duration: true } }),
+      ]);
+      const totalDurationMs = (durationSum._sum.duration ?? 0) * 1000;
+      return {
+        tracksTotal,
+        favoriteTracksTotal,
+        playlistsTotal,
+        favoriteArtistsTotal,
+        favoriteAlbumsTotal,
+        totalDurationMs,
+      };
     },
   },
 

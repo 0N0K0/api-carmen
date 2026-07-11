@@ -11,7 +11,7 @@ vi.mock('../../services/sync', () => ({
 }));
 
 const mockPrisma = {
-  track: { count: vi.fn() },
+  track: { count: vi.fn(), aggregate: vi.fn() },
   playlist: { count: vi.fn() },
   artist: { count: vi.fn() },
   album: { count: vi.fn() },
@@ -64,11 +64,12 @@ describe('Query.userLibrary', () => {
 describe('Query.libraryStats', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('counts tracks, favorite tracks, playlists, favorite artists and favorite albums in parallel', async () => {
+  it('counts tracks, favorite tracks, playlists, favorite artists, favorite albums and total duration in parallel', async () => {
     mockPrisma.track.count.mockResolvedValueOnce(7573).mockResolvedValueOnce(500);
     mockPrisma.playlist.count.mockResolvedValue(742);
     mockPrisma.artist.count.mockResolvedValue(11);
     mockPrisma.album.count.mockResolvedValue(106);
+    mockPrisma.track.aggregate.mockResolvedValue({ _sum: { duration: 5630940 } });
 
     const result = await userResolvers.Query.libraryStats();
 
@@ -76,13 +77,27 @@ describe('Query.libraryStats', () => {
     expect(mockPrisma.track.count).toHaveBeenNthCalledWith(2, { where: { isFavorite: true } });
     expect(mockPrisma.artist.count).toHaveBeenCalledWith({ where: { isFavorite: true } });
     expect(mockPrisma.album.count).toHaveBeenCalledWith({ where: { isFavorite: true } });
+    expect(mockPrisma.track.aggregate).toHaveBeenCalledWith({ _sum: { duration: true } });
     expect(result).toEqual({
       tracksTotal: 7573,
       favoriteTracksTotal: 500,
       playlistsTotal: 742,
       favoriteArtistsTotal: 11,
       favoriteAlbumsTotal: 106,
+      totalDurationMs: 5630940000,
     });
+  });
+
+  it('converts a null duration sum (no tracks) to 0ms instead of NaN', async () => {
+    mockPrisma.track.count.mockResolvedValue(0);
+    mockPrisma.playlist.count.mockResolvedValue(0);
+    mockPrisma.artist.count.mockResolvedValue(0);
+    mockPrisma.album.count.mockResolvedValue(0);
+    mockPrisma.track.aggregate.mockResolvedValue({ _sum: { duration: null } });
+
+    const result = await userResolvers.Query.libraryStats();
+
+    expect(result.totalDurationMs).toBe(0);
   });
 });
 
