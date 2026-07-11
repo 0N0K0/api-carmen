@@ -1,7 +1,7 @@
 import { getAlbum } from '../../services/deezer';
 import { getPrismaClient } from '../../plugins/prisma';
 import { mapAlbum } from './mappers';
-import { paginate, parseDbId } from './pagination';
+import { paginate, parseDbId, sortDirection } from './pagination';
 import { loadArtistById, loadTracksByAlbumId } from './loaders';
 
 export { mapAlbum };
@@ -32,17 +32,22 @@ export const albumResolvers = {
     },
 
     /**
-     * Liste les albums synchronisés en DB, paginés.
+     * Liste les albums synchronisés en DB, paginés, triés par titre.
      * @param {unknown} _ Parent (non utilisé).
-     * @param {{ limit?: number; offset?: number; favoritesOnly?: boolean }} args Arguments de pagination et filtre.
+     * @param {{ limit?: number; offset?: number; favoritesOnly?: boolean; orderBy?: 'ASC' | 'DESC' }} args Arguments de pagination, filtre et tri.
      * @returns {Promise<object>} Page d'albums avec pagination.
      */
-    albums: async (_: unknown, args: { limit?: number; offset?: number; favoritesOnly?: boolean }) => {
+    albums: async (
+      _: unknown,
+      args: { limit?: number; offset?: number; favoritesOnly?: boolean; orderBy?: 'ASC' | 'DESC' },
+    ) => {
       const prisma = getPrismaClient();
       const where = args.favoritesOnly ? { isFavorite: true } : {};
+      const direction = sortDirection(args.orderBy);
       return paginate(
         args,
-        (limit, offset) => prisma.album.findMany({ where, skip: offset, take: limit, orderBy: { id: 'asc' } }),
+        (limit, offset) =>
+          prisma.album.findMany({ where, skip: offset, take: limit, orderBy: { title: direction } }),
         () => prisma.album.count({ where }),
       );
     },

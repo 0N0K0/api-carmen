@@ -87,6 +87,11 @@ const typeDefs = /* GraphQL */ `
     PLAYLIST
   }
 
+  enum SortOrder {
+    ASC
+    DESC
+  }
+
   type Pagination {
     offset: Int!
     limit: Int!
@@ -198,9 +203,9 @@ const typeDefs = /* GraphQL */ `
     album(id: ID!): Album
     playlist(id: ID!): Playlist
     tracks(limit: Int, offset: Int): TrackPage!
-    albums(limit: Int, offset: Int, favoritesOnly: Boolean): AlbumPage!
-    artists(limit: Int, offset: Int, favoritesOnly: Boolean): ArtistPage!
-    playlists(limit: Int, offset: Int): PlaylistPage!
+    albums(limit: Int, offset: Int, favoritesOnly: Boolean, orderBy: SortOrder): AlbumPage!
+    artists(limit: Int, offset: Int, favoritesOnly: Boolean, orderBy: SortOrder): ArtistPage!
+    playlists(limit: Int, offset: Int, orderBy: SortOrder): PlaylistPage!
     search(query: String!, type: SearchType, limit: Int): SearchResults!
     currentUser: CurrentUser
     userLibrary(limit: Int): UserLibrary!

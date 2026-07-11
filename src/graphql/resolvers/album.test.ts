@@ -201,6 +201,28 @@ describe('Query.albums', () => {
       expect.objectContaining({ where: {} }),
     );
   });
+
+  it('sorts by title ascending by default', async () => {
+    mockPrisma.album.findMany.mockResolvedValue([]);
+    mockPrisma.album.count.mockResolvedValue(0);
+
+    await albumResolvers.Query.albums(undefined, {});
+
+    expect(mockPrisma.album.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { title: 'asc' } }),
+    );
+  });
+
+  it('sorts by title descending when orderBy is DESC', async () => {
+    mockPrisma.album.findMany.mockResolvedValue([]);
+    mockPrisma.album.count.mockResolvedValue(0);
+
+    await albumResolvers.Query.albums(undefined, { orderBy: 'DESC' });
+
+    expect(mockPrisma.album.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { title: 'desc' } }),
+    );
+  });
 });
 
 describe('Album.artist', () => {

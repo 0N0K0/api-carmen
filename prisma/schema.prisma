@@ -8,6 +8,8 @@ datasource db {
 
 model Artist {
   id      Int     @id
+  // COLLATE case_insensitive (migration 20260711065718) — pas modélisé par Prisma,
+  // ne pas recréer cette colonne (db push/migrate) sans réappliquer la collation.
   name    String
   link    String?
   // base URL — append ?size=small|medium|big|xl
@@ -23,6 +25,8 @@ model Artist {
 
 model Album {
   id             Int      @id
+  // COLLATE case_insensitive (migration 20260711065718) — pas modélisé par Prisma,
+  // ne pas recréer cette colonne (db push/migrate) sans réappliquer la collation.
   title          String
   upc            String?
   link           String?
@@ -112,6 +116,8 @@ model Track {
 model Playlist {
   // BigInt: certains ids de playlists Deezer dépassent la plage Int32 (> 2 147 483 647)
   id            BigInt   @id
+  // COLLATE case_insensitive (migration 20260711065718) — pas modélisé par Prisma,
+  // ne pas recréer cette colonne (db push/migrate) sans réappliquer la collation.
   title         String
   description   String?
   duration      Int?

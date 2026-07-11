@@ -1,7 +1,7 @@
 import { getPlaylist } from '../../services/deezer';
 import { getPrismaClient } from '../../plugins/prisma';
 import { mapPlaylist } from './mappers';
-import { paginate, parseDbId } from './pagination';
+import { paginate, parseDbId, sortDirection } from './pagination';
 import { loadTracksByPlaylistId } from './loaders';
 
 export { mapPlaylist };
@@ -32,16 +32,18 @@ export const playlistResolvers = {
     },
 
     /**
-     * Liste les playlists synchronisées en DB, paginées.
+     * Liste les playlists synchronisées en DB, paginées, triées par titre.
      * @param {unknown} _ Parent (non utilisé).
-     * @param {{ limit?: number; offset?: number }} args Arguments de pagination.
+     * @param {{ limit?: number; offset?: number; orderBy?: 'ASC' | 'DESC' }} args Arguments de pagination et tri.
      * @returns {Promise<object>} Page de playlists avec pagination.
      */
-    playlists: async (_: unknown, args: { limit?: number; offset?: number }) => {
+    playlists: async (_: unknown, args: { limit?: number; offset?: number; orderBy?: 'ASC' | 'DESC' }) => {
       const prisma = getPrismaClient();
+      const direction = sortDirection(args.orderBy);
       return paginate(
         args,
-        (limit, offset) => prisma.playlist.findMany({ skip: offset, take: limit, orderBy: { id: 'asc' } }),
+        (limit, offset) =>
+          prisma.playlist.findMany({ skip: offset, take: limit, orderBy: { title: direction } }),
         () => prisma.playlist.count(),
       );
     },

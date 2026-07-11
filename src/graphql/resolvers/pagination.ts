@@ -24,6 +24,15 @@ function normalizePagination(args: { limit?: number; offset?: number }) {
 }
 
 /**
+ * Convertit l'enum GraphQL `SortOrder` (`ASC`/`DESC`) en direction Prisma (`asc`/`desc`).
+ * @param {'ASC' | 'DESC'} [orderBy] Direction demandée. Par défaut `ASC`.
+ * @returns {'asc' | 'desc'} Direction Prisma.
+ */
+export function sortDirection(orderBy?: 'ASC' | 'DESC'): 'asc' | 'desc' {
+  return orderBy === 'DESC' ? 'desc' : 'asc';
+}
+
+/**
  * Exécute une liste paginée et son compte total en parallèle, et formate le résultat GraphQL.
  * @param {{ limit?: number; offset?: number }} args Arguments de pagination bruts.
  * @param {(limit: number, offset: number) => Promise<T[]>} findMany Requête Prisma paginée.
