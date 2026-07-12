@@ -10,6 +10,7 @@ vi.mock('./deezer', () => ({
   deezerFetchAllFrom: vi.fn(),
   getUserLibrary: vi.fn(),
   getUserTracks: vi.fn(),
+  getPlaylistTrackIds: vi.fn(),
 }));
 
 const mockPrisma = {
@@ -29,6 +30,7 @@ import {
   getAlbum,
   getArtist,
   getPlaylist,
+  getPlaylistTrackIds,
   getTrack,
   getUserLibrary,
   getUserTracks,
@@ -238,6 +240,48 @@ describe('sync service', () => {
 
       expect(deezerFetchAllFrom).toHaveBeenCalledWith(completePlaylist.tracks);
       expect(deezerFetchAll).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the Pipe API to fetch tracks beyond the REST 5000-track cap (real quirk: nb_tracks and /playlist/{id}/tracks total both freeze at 5000 on a 7573-track playlist)', async () => {
+      const restTracks = Array.from({ length: 5000 }, (_, i) => ({ ...MOCK_TRACK, id: i + 1 }));
+      const pipeIds = [...restTracks.map((t) => String(t.id)), '5001', '5002'];
+      const extraTrack1: DeezerTrack = { ...MOCK_TRACK, id: 5001 };
+      const extraTrack2: DeezerTrack = { ...MOCK_TRACK, id: 5002 };
+      vi.mocked(getPlaylist).mockResolvedValue({ ...MOCK_PLAYLIST, nb_tracks: 5000, tracks: undefined });
+      vi.mocked(deezerFetchAll).mockResolvedValue(restTracks);
+      vi.mocked(getPlaylistTrackIds).mockResolvedValue(pipeIds);
+      vi.mocked(getTrack).mockImplementation((id) =>
+        Promise.resolve(String(id) === '5001' ? extraTrack1 : extraTrack2),
+      );
+
+      await syncPlaylist(30);
+
+      expect(getPlaylistTrackIds).toHaveBeenCalledWith(30);
+      expect(getTrack).toHaveBeenCalledTimes(2);
+      expect(getTrack).toHaveBeenCalledWith('5001');
+      expect(getTrack).toHaveBeenCalledWith('5002');
+      expect(mockPrisma.track.upsert).toHaveBeenCalledTimes(5002);
+    });
+
+    it('keeps the REST-capped track list when the Pipe API is unavailable (e.g. DEEZER_ARL not configured)', async () => {
+      const restTracks = Array.from({ length: 5000 }, (_, i) => ({ ...MOCK_TRACK, id: i + 1 }));
+      vi.mocked(getPlaylist).mockResolvedValue({ ...MOCK_PLAYLIST, nb_tracks: 5000, tracks: undefined });
+      vi.mocked(deezerFetchAll).mockResolvedValue(restTracks);
+      vi.mocked(getPlaylistTrackIds).mockRejectedValue(new Error('DEEZER_ARL not set'));
+
+      await syncPlaylist(30);
+
+      expect(getTrack).not.toHaveBeenCalled();
+      expect(mockPrisma.track.upsert).toHaveBeenCalledTimes(5000);
+    });
+
+    it('does not call the Pipe API when the REST track count is below the cap', async () => {
+      vi.mocked(getPlaylist).mockResolvedValue(MOCK_PLAYLIST);
+      vi.mocked(deezerFetchAll).mockResolvedValue([MOCK_TRACK]);
+
+      await syncPlaylist(30);
+
+      expect(getPlaylistTrackIds).not.toHaveBeenCalled();
     });
   });
 

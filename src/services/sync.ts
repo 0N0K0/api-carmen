@@ -6,6 +6,7 @@ import {
   getAlbum,
   getArtist,
   getPlaylist,
+  getPlaylistTrackIds,
   getTrack,
   getUserLibrary,
   getUserTracks,
@@ -129,9 +130,34 @@ export async function syncPlaylist(deezerId: number | string) {
     playlist.tracks !== undefined &&
     (Boolean(playlist.tracks.next) || playlist.nb_tracks === undefined || embeddedCount >= playlist.nb_tracks);
 
-  const tracks = canTrustEmbeddedTracks
+  let tracks = canTrustEmbeddedTracks
     ? await deezerFetchAllFrom<DeezerTrack>(playlist.tracks!)
     : await deezerFetchAll<DeezerTrack>(`/playlist/${playlist.id}/tracks`);
+
+  // L'API publique REST plafonne elle-même `nb_tracks` ET la pagination de
+  // /playlist/{id}/tracks à 5000 (constaté en réel : une playlist de 7573 titres
+  // renvoie total=5000 des deux côtés) — au-delà, seule la Pipe API authentifiée par
+  // ARL pagine correctement. On ne s'en sert que pour compléter les tracks manquants
+  // au-delà du plafond REST, en réutilisant `getTrack` pour une hydratation complète
+  // (même niveau de détail que le reste du sync, cf. compactForUpdate plus haut).
+  const REST_TRACK_LIST_CAP = 5000;
+  if (tracks.length >= REST_TRACK_LIST_CAP) {
+    try {
+      const pipeTrackIds = await getPlaylistTrackIds(playlist.id);
+      if (pipeTrackIds.length > tracks.length) {
+        const byId = new Map(tracks.map((t) => [String(t.id), t]));
+        const missingIds = pipeTrackIds.filter((id) => !byId.has(id));
+        const hydrated = await Promise.all(missingIds.map((id) => getTrack(id)));
+        for (const t of hydrated) byId.set(String(t.id), t);
+        tracks = pipeTrackIds
+          .map((id) => byId.get(id))
+          .filter((t): t is DeezerTrack => t !== undefined);
+      }
+    } catch {
+      // Pipe API indisponible (DEEZER_ARL absent, etc.) — on garde la liste REST
+      // plafonnée, moins bonne que la Pipe API mais toujours mieux que rien.
+    }
+  }
 
   for (const track of tracks) {
     await persistTrack(track);
