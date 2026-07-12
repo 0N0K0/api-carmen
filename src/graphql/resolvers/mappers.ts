@@ -15,6 +15,8 @@ export function mapArtist(a: DeezerArtist) {
     nbAlbum: a.nb_album ?? null,
     nbFan: a.nb_fan ?? null,
     isFavorite: null,
+    isPinned: false,
+    pinnedOrder: null,
   };
 }
 
@@ -54,6 +56,8 @@ export function mapTrack(t: DeezerTrack) {
       recordType: null,
       explicitLyrics: null,
       isFavorite: null,
+      isPinned: false,
+      pinnedOrder: null,
       artist: null,
       tracks: null,
     },
@@ -80,6 +84,8 @@ export function mapAlbum(a: DeezerAlbum) {
     recordType: a.record_type ?? null,
     explicitLyrics: a.explicit_lyrics ?? null,
     isFavorite: null,
+    isPinned: false,
+    pinnedOrder: null,
     artist: a.artist ? mapArtist(a.artist) : null,
     tracks: a.tracks?.data.map(mapTrack) ?? null,
   };
@@ -103,6 +109,8 @@ export function mapPlaylist(p: DeezerPlaylist) {
     link: p.link ?? null,
     picture: p.picture ?? null,
     checksum: p.checksum ?? null,
+    isPinned: false,
+    pinnedOrder: null,
     tracks: p.tracks?.data.map(mapTrack) ?? null,
   };
 }
@@ -121,6 +129,7 @@ type PrismaPlaylistShape = Playlist & {
 type GqlArtist = {
   id: string; name: string; link: string | null; picture: string | null;
   nbAlbum: number | null; nbFan: number | null; isFavorite: boolean | null;
+  isPinned: boolean; pinnedOrder: number | null;
 };
 type GqlTrack = {
   id: string; title: string; titleShort: string | null; isrc: string | null;
@@ -132,7 +141,8 @@ type GqlAlbum = {
   id: string; title: string; upc: string | null; link: string | null; cover: string | null;
   label: string | null; nbTracks: number | null; duration: number | null; fans: number | null;
   releaseDate: string | null; recordType: string | null; explicitLyrics: boolean | null;
-  isFavorite: boolean | null; artist: GqlArtist | null; tracks: GqlTrack[] | null;
+  isFavorite: boolean | null; isPinned: boolean; pinnedOrder: number | null;
+  artist: GqlArtist | null; tracks: GqlTrack[] | null;
 };
 
 /**
@@ -149,6 +159,8 @@ export function mapPrismaArtist(a: PrismaArtistShape): GqlArtist {
     nbAlbum: a.nbAlbum,
     nbFan: a.nbFan,
     isFavorite: a.isFavorite,
+    isPinned: a.isPinned,
+    pinnedOrder: a.pinnedOrder,
   };
 }
 
@@ -197,6 +209,8 @@ export function mapPrismaAlbum(a: PrismaAlbumShape): GqlAlbum {
     recordType: a.recordType,
     explicitLyrics: a.explicitLyrics,
     isFavorite: a.isFavorite,
+    isPinned: a.isPinned,
+    pinnedOrder: a.pinnedOrder,
     artist: a.artist ? mapPrismaArtist(a.artist) : null,
     tracks: a.tracks?.map(mapPrismaTrack) ?? null,
   };
@@ -220,6 +234,8 @@ export function mapPrismaPlaylist(p: PrismaPlaylistShape) {
     link: p.link,
     picture: p.picture,
     checksum: p.checksum,
+    isPinned: p.isPinned,
+    pinnedOrder: p.pinnedOrder,
     tracks: p.tracks?.map((pt) => mapPrismaTrack(pt.track)) ?? null,
   };
 }

@@ -5,6 +5,7 @@ import { trackResolvers } from '../resolvers/track';
 import { playlistResolvers } from '../resolvers/playlist';
 import { syncResolvers } from '../resolvers/sync';
 import { userResolvers } from '../resolvers/user';
+import { pinResolvers } from '../resolvers/pin';
 
 const typeDefs = /* GraphQL */ `
   type Artist {
@@ -15,6 +16,8 @@ const typeDefs = /* GraphQL */ `
     nbAlbum: Int
     nbFan: Int
     isFavorite: Boolean
+    isPinned: Boolean!
+    pinnedOrder: Int
   }
 
   type Album {
@@ -31,6 +34,8 @@ const typeDefs = /* GraphQL */ `
     recordType: String
     explicitLyrics: Boolean
     isFavorite: Boolean
+    isPinned: Boolean!
+    pinnedOrder: Int
     artist: Artist
     tracks: [Track!]
   }
@@ -65,7 +70,22 @@ const typeDefs = /* GraphQL */ `
     link: String
     picture: String
     checksum: String
+    isPinned: Boolean!
+    pinnedOrder: Int
     tracks(limit: Int, offset: Int): TrackPage!
+  }
+
+  enum PinnableType {
+    PLAYLIST
+    ALBUM
+    ARTIST
+  }
+
+  union PinnedItem = Playlist | Album | Artist
+
+  input PinnedItemInput {
+    type: PinnableType!
+    id: ID!
   }
 
   type Folder {
@@ -212,13 +232,14 @@ const typeDefs = /* GraphQL */ `
     album(id: ID!): Album
     playlist(id: ID!): Playlist
     tracks(limit: Int, offset: Int): TrackPage!
-    albums(limit: Int, offset: Int, favoritesOnly: Boolean, orderBy: SortOrder): AlbumPage!
-    artists(limit: Int, offset: Int, favoritesOnly: Boolean, orderBy: SortOrder): ArtistPage!
-    playlists(limit: Int, offset: Int, orderBy: SortOrder): PlaylistPage!
+    albums(limit: Int, offset: Int, favoritesOnly: Boolean, pinnedOnly: Boolean, orderBy: SortOrder): AlbumPage!
+    artists(limit: Int, offset: Int, favoritesOnly: Boolean, pinnedOnly: Boolean, orderBy: SortOrder): ArtistPage!
+    playlists(limit: Int, offset: Int, pinnedOnly: Boolean, orderBy: SortOrder): PlaylistPage!
     search(query: String!, type: SearchType, limit: Int): SearchResults!
     currentUser: CurrentUser
     userLibrary(limit: Int): UserLibrary!
     libraryStats: LibraryStats!
+    pinnedItems: [PinnedItem!]!
   }
 
   type Mutation {
@@ -228,6 +249,13 @@ const typeDefs = /* GraphQL */ `
     syncArtist(deezerId: ID!, limit: Int): Artist!
     syncFavoriteTracks(limit: Int): [Track!]!
     syncUserLibrary(limit: Int): SyncLibrarySummary!
+    pinPlaylist(id: ID!): Playlist!
+    unpinPlaylist(id: ID!): Playlist!
+    pinAlbum(id: ID!): Album!
+    unpinAlbum(id: ID!): Album!
+    pinArtist(id: ID!): Artist!
+    unpinArtist(id: ID!): Artist!
+    reorderPinnedItems(items: [PinnedItemInput!]!): [PinnedItem!]!
   }
 `;
 
@@ -240,11 +268,14 @@ export const schema = createSchema({
       ...albumResolvers.Query,
       ...playlistResolvers.Query,
       ...userResolvers.Query,
+      ...pinResolvers.Query,
     },
+    PinnedItem: pinResolvers.PinnedItem,
     Mutation: {
       ...trackResolvers.Mutation,
       ...syncResolvers.Mutation,
       ...userResolvers.Mutation,
+      ...pinResolvers.Mutation,
     },
     Track: trackResolvers.Track,
     Album: albumResolvers.Album,

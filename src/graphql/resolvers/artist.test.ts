@@ -41,6 +41,8 @@ describe('mapArtist', () => {
       nbAlbum: 8,
       nbFan: 5000000,
       isFavorite: null,
+      isPinned: false,
+      pinnedOrder: null,
     });
   });
 
@@ -147,6 +149,28 @@ describe('Query.artists', () => {
 
     expect(mockPrisma.artist.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: {} }),
+    );
+  });
+
+  it('filters by isPinned when pinnedOnly is true', async () => {
+    mockPrisma.artist.findMany.mockResolvedValue([]);
+    mockPrisma.artist.count.mockResolvedValue(0);
+
+    await artistResolvers.Query.artists(undefined, { pinnedOnly: true });
+
+    expect(mockPrisma.artist.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { isPinned: true } }),
+    );
+  });
+
+  it('combines favoritesOnly and pinnedOnly', async () => {
+    mockPrisma.artist.findMany.mockResolvedValue([]);
+    mockPrisma.artist.count.mockResolvedValue(0);
+
+    await artistResolvers.Query.artists(undefined, { favoritesOnly: true, pinnedOnly: true });
+
+    expect(mockPrisma.artist.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { isFavorite: true, isPinned: true } }),
     );
   });
 
