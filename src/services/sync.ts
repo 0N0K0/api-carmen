@@ -118,8 +118,19 @@ async function persistTrack(track: DeezerTrack) {
 export async function syncPlaylist(deezerId: number | string) {
   const prisma = getPrismaClient();
   const playlist = await getPlaylist(deezerId);
-  const tracks = playlist.tracks
-    ? await deezerFetchAllFrom<DeezerTrack>(playlist.tracks)
+
+  // Le champ `tracks` embarqué dans /playlist/{id} est parfois plafonné (constaté à 400
+  // éléments sur une playlist qui en a 5000+) avec `next` à `null` alors qu'il en reste —
+  // un bug/quirk de l'API Deezer, pas une vraie fin de liste. La sous-ressource dédiée
+  // /playlist/{id}/tracks, elle, pagine correctement. On ne fait confiance au seed embarqué
+  // que si Deezer donne un `next` réel, ou si son nombre de tracks couvre déjà `nb_tracks`.
+  const embeddedCount = playlist.tracks?.data.length ?? 0;
+  const canTrustEmbeddedTracks =
+    playlist.tracks !== undefined &&
+    (Boolean(playlist.tracks.next) || playlist.nb_tracks === undefined || embeddedCount >= playlist.nb_tracks);
+
+  const tracks = canTrustEmbeddedTracks
+    ? await deezerFetchAllFrom<DeezerTrack>(playlist.tracks!)
     : await deezerFetchAll<DeezerTrack>(`/playlist/${playlist.id}/tracks`);
 
   for (const track of tracks) {
@@ -185,8 +196,16 @@ export async function syncAlbum(deezerId: number | string) {
   await upsertArtist(artist);
   await upsertAlbum(album, artist.id);
 
-  const tracks = album.tracks
-    ? await deezerFetchAllFrom<DeezerTrack>(album.tracks)
+  // Même garde-fou que syncPlaylist : le `tracks` embarqué peut être plafonné par
+  // Deezer avec `next` à `null` alors qu'il en reste — on ne s'y fie que si `next`
+  // est réel ou si son compte couvre déjà `nb_tracks`.
+  const embeddedTrackCount = album.tracks?.data.length ?? 0;
+  const canTrustEmbeddedTracks =
+    album.tracks !== undefined &&
+    (Boolean(album.tracks.next) || album.nb_tracks === undefined || embeddedTrackCount >= album.nb_tracks);
+
+  const tracks = canTrustEmbeddedTracks
+    ? await deezerFetchAllFrom<DeezerTrack>(album.tracks!)
     : await deezerFetchAll<DeezerTrack>(`/album/${album.id}/tracks`);
   for (const track of tracks) {
     const trackArtist = track.artist ?? artist;

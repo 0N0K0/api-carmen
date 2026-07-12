@@ -208,6 +208,37 @@ describe('sync service', () => {
       expect(deezerFetchAll).not.toHaveBeenCalled();
       expect(mockPrisma.track.upsert).toHaveBeenCalledTimes(2);
     });
+
+    it('does not trust the embedded tracks page when Deezer caps it below nb_tracks with no next (real quirk: 400-track cap, next: null, on a 5000-track playlist)', async () => {
+      const cappedPlaylist: DeezerPlaylist = {
+        ...MOCK_PLAYLIST,
+        nb_tracks: 5000,
+        tracks: { data: [MOCK_TRACK], next: undefined },
+      };
+      vi.mocked(getPlaylist).mockResolvedValue(cappedPlaylist);
+      vi.mocked(deezerFetchAll).mockResolvedValue([MOCK_TRACK, MOCK_TRACK_2]);
+
+      await syncPlaylist(30);
+
+      expect(deezerFetchAll).toHaveBeenCalledWith('/playlist/30/tracks');
+      expect(deezerFetchAllFrom).not.toHaveBeenCalled();
+      expect(mockPrisma.track.upsert).toHaveBeenCalledTimes(2);
+    });
+
+    it('trusts the embedded tracks page when its count already covers nb_tracks (genuinely complete, next correctly null)', async () => {
+      const completePlaylist: DeezerPlaylist = {
+        ...MOCK_PLAYLIST,
+        nb_tracks: 1,
+        tracks: { data: [MOCK_TRACK], next: undefined },
+      };
+      vi.mocked(getPlaylist).mockResolvedValue(completePlaylist);
+      vi.mocked(deezerFetchAllFrom).mockResolvedValue([MOCK_TRACK]);
+
+      await syncPlaylist(30);
+
+      expect(deezerFetchAllFrom).toHaveBeenCalledWith(completePlaylist.tracks);
+      expect(deezerFetchAll).not.toHaveBeenCalled();
+    });
   });
 
   describe('upsert data hygiene: a lean re-sync must not erase previously-known fields', () => {
@@ -302,6 +333,23 @@ describe('sync service', () => {
 
       expect(deezerFetchAllFrom).toHaveBeenCalledWith(albumWithFirstPage.tracks);
       expect(deezerFetchAll).not.toHaveBeenCalled();
+      expect(mockPrisma.track.upsert).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not trust the embedded tracks page when Deezer caps it below nb_tracks with no next', async () => {
+      const cappedAlbum: DeezerAlbum = {
+        ...MOCK_ALBUM,
+        artist: MOCK_ARTIST,
+        nb_tracks: 500,
+        tracks: { data: [MOCK_TRACK], next: undefined },
+      };
+      vi.mocked(getAlbum).mockResolvedValue(cappedAlbum);
+      vi.mocked(deezerFetchAll).mockResolvedValue([MOCK_TRACK, MOCK_TRACK_2]);
+
+      await syncAlbum(20);
+
+      expect(deezerFetchAll).toHaveBeenCalledWith('/album/20/tracks');
+      expect(deezerFetchAllFrom).not.toHaveBeenCalled();
       expect(mockPrisma.track.upsert).toHaveBeenCalledTimes(2);
     });
 
