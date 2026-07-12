@@ -60,12 +60,25 @@ function toTrackData(t: DeezerTrack, artistId: number, albumId: number) {
   };
 }
 
+/**
+ * Retire les clés à `null` d'un objet de données de sync. Certains endpoints Deezer
+ * renvoient des sous-objets allégés (ex. l'artiste imbriqué dans `/album/{id}/tracks`
+ * ou `/artist/{id}/top` n'a pas de `picture` ; ce dernier n'a pas non plus `isrc` sur
+ * ses tracks) — sans ce filtre, un `update` déclenché par un endpoint allégé écraserait
+ * avec `null` une donnée déjà connue et correcte issue d'un sync précédent plus complet.
+ * @param {T} data Données à écrire.
+ * @returns {Partial<T>} Mêmes données, sans les clés dont la valeur est `null`.
+ */
+function compactForUpdate<T extends Record<string, unknown>>(data: T): Partial<T> {
+  return Object.fromEntries(Object.entries(data).filter(([, v]) => v !== null)) as Partial<T>;
+}
+
 async function upsertArtist(a: DeezerArtist) {
   const data = toArtistData(a);
   await getPrismaClient().artist.upsert({
     where: { id: a.id },
     create: { id: a.id, ...data },
-    update: data,
+    update: compactForUpdate(data),
   });
 }
 
@@ -74,7 +87,7 @@ async function upsertAlbum(a: DeezerAlbum, artistId: number) {
   await getPrismaClient().album.upsert({
     where: { id: a.id },
     create: { id: a.id, ...data },
-    update: data,
+    update: compactForUpdate(data),
   });
 }
 
@@ -83,7 +96,7 @@ async function upsertTrack(t: DeezerTrack, artistId: number, albumId: number) {
   await getPrismaClient().track.upsert({
     where: { id: t.id },
     create: { id: t.id, ...data },
-    update: data,
+    update: compactForUpdate(data),
   });
 }
 
