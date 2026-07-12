@@ -367,6 +367,19 @@ query GetMyPlaylists($first: Int, $after: String) {
   } }
 }`;
 
+// L'API publique REST plafonne `nb_tracks` ET la pagination de /playlist/{id}/tracks à 5000
+// (constaté en réel sur une playlist de 7573 titres : les deux se figent à 5000) — au-delà,
+// la Pipe API (authentifiée par ARL) est la seule source qui pagine correctement.
+const Q_GET_PLAYLIST_TRACK_IDS = `
+query GetPlaylistTrackIds($id: String!, $first: Int, $after: String) {
+  playlist(playlistId: $id) {
+    tracks(first: $first, after: $after) {
+      pageInfo { hasNextPage endCursor }
+      edges { node { id } }
+    }
+  }
+}`;
+
 // ---------------------------------------------------------------------------
 // Helpers de mapping Pipe API → types internes
 // ---------------------------------------------------------------------------
@@ -389,6 +402,7 @@ const PIPE_MAX_PAGES = 1000;
  * @param {string} operationName Nom de l'opération GraphQL.
  * @param {number} pageSize Taille de page (`first`).
  * @param {(data: T) => PipeConnection<N>} getConnection Extrait la connexion (edges + pageInfo) de la réponse.
+ * @param {Record<string, unknown>} [extraVariables] Variables GraphQL additionnelles (ex. un id ciblé), fusionnées avec `first`/`after`.
  * @returns {Promise<N[]>} Tous les nœuds de toutes les pages, dans l'ordre.
  */
 async function pipeFetchAllPages<T, N>(
@@ -396,13 +410,14 @@ async function pipeFetchAllPages<T, N>(
   operationName: string,
   pageSize: number,
   getConnection: (data: T) => PipeConnection<N>,
+  extraVariables: Record<string, unknown> = {},
 ): Promise<N[]> {
   const items: N[] = [];
   let after: string | undefined;
   let pages = 0;
 
   while (true) {
-    const data = await pipeFetch<T>(query, operationName, { first: pageSize, after });
+    const data = await pipeFetch<T>(query, operationName, { ...extraVariables, first: pageSize, after });
     const connection = getConnection(data);
     items.push(...connection.edges.map((e) => e.node));
     pages += 1;
@@ -522,6 +537,32 @@ export async function getUserArtists(pageSize: number = 50): Promise<PipeFavorit
     fansCount: node.fansCount ?? null,
     isFavorite: node.isFavorite ?? null,
   }));
+}
+
+/**
+ * Récupère l'intégralité des identifiants de tracks d'une playlist, dans l'ordre, via la
+ * Pipe API (authentifiée par ARL). Contrairement à l'API publique REST, cette pagination
+ * n'est pas plafonnée à 5000 — nécessaire pour les playlists dépassant ce seuil.
+ * Nécessite `DEEZER_ARL`.
+ * @param {number | string} deezerId Identifiant Deezer de la playlist.
+ * @param {number} [pageSize=200] Taille de page Pipe API (`first`).
+ * @returns {Promise<string[]>} Identifiants de tracks, dans l'ordre de la playlist.
+ */
+export async function getPlaylistTrackIds(
+  deezerId: number | string,
+  pageSize: number = 200,
+): Promise<string[]> {
+  const nodes = await pipeFetchAllPages<
+    { playlist: { tracks: PipeConnection<{ id: string }> } },
+    { id: string }
+  >(
+    Q_GET_PLAYLIST_TRACK_IDS,
+    'GetPlaylistTrackIds',
+    pageSize,
+    (data) => data.playlist.tracks,
+    { id: String(deezerId) },
+  );
+  return nodes.map((n) => n.id);
 }
 
 /**
