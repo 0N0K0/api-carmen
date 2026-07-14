@@ -11,10 +11,12 @@ const typeDefs = /* GraphQL */ `
   type Artist {
     id: ID!
     name: String!
-    link: String
+    share: String
     picture: String
-    nbAlbum: Int
-    nbFan: Int
+    pictureSmall: String
+    pictureMedium: String
+    pictureBig: String
+    pictureXl: String
     isFavorite: Boolean
     isPinned: Boolean!
     pinnedOrder: Int
@@ -24,20 +26,28 @@ const typeDefs = /* GraphQL */ `
     id: ID!
     title: String!
     upc: String
-    link: String
+    share: String
     cover: String
-    label: String
-    nbTracks: Int
-    duration: Int
-    fans: Int
+    coverSmall: String
+    coverMedium: String
+    coverBig: String
+    coverXl: String
     releaseDate: String
     recordType: String
-    explicitLyrics: Boolean
+    available: Boolean
     isFavorite: Boolean
     isPinned: Boolean!
     pinnedOrder: Int
     artist: Artist
     tracks: [Track!]
+    genres: [Genre!]
+    contributors: [Artist!]
+  }
+
+  type Genre {
+    id: ID!
+    name: String!
+    picture: String
   }
 
   type Track {
@@ -45,30 +55,29 @@ const typeDefs = /* GraphQL */ `
     title: String!
     titleShort: String
     isrc: String
-    link: String
+    readable: Boolean
+    share: String
     duration: Int!
     rank: Int
-    releaseDate: String
     explicitLyrics: Boolean
-    preview: String
-    bpm: Float
     gain: Float
     isFavorite: Boolean
     artist: Artist!
     album: Album!
+    contributors: [Artist!]
   }
 
   type Playlist {
     id: ID!
     title: String!
     description: String
-    duration: Int
     public: Boolean
     isLovedTrack: Boolean
     collaborative: Boolean
-    fans: Int
-    link: String
+    share: String
     picture: String
+    creatorId: ID
+    creatorName: String
     checksum: String
     isPinned: Boolean!
     pinnedOrder: Int
@@ -244,7 +253,7 @@ const typeDefs = /* GraphQL */ `
 
   type Mutation {
     getStreamUrl(trackId: ID!): String!
-    syncPlaylist(deezerId: ID!): Playlist!
+    syncPlaylist(deezerId: ID!, force: Boolean): Playlist!
     syncAlbum(deezerId: ID!): Album!
     syncArtist(deezerId: ID!, limit: Int): Artist!
     syncFavoriteTracks(limit: Int): [Track!]!

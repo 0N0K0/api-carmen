@@ -2,6 +2,7 @@ export interface DeezerArtist {
   id: number;
   name: string;
   link: string;
+  share?: string;
   picture: string;
   picture_small: string;
   picture_medium: string;
@@ -12,6 +13,8 @@ export interface DeezerArtist {
   radio?: boolean;
   tracklist: string;
   type: 'artist';
+  // Présent uniquement quand cet artiste apparaît dans DeezerAlbum.contributors
+  role?: string;
 }
 
 export interface DeezerAlbum {
@@ -19,6 +22,7 @@ export interface DeezerAlbum {
   title: string;
   upc?: string;
   link: string;
+  share?: string;
   cover: string;
   cover_small: string;
   cover_medium: string;
@@ -59,6 +63,7 @@ export interface DeezerTrack {
   title_version?: string;
   isrc?: string;
   link: string;
+  share?: string;
   duration: number;
   track_position?: number;
   disk_number?: number;
@@ -89,6 +94,7 @@ export interface DeezerPlaylist {
   nb_tracks?: number;
   fans?: number;
   link: string;
+  share?: string;
   picture?: string;
   picture_small?: string;
   picture_medium?: string;

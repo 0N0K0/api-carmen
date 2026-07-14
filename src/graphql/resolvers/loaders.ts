@@ -29,3 +29,41 @@ export const loadTracksByAlbumId = createGroupBatcher(
     }),
   (t) => t.albumId,
 );
+
+/**
+ * Charge les genres d'un album, en regroupant les appels concurrents en un seul `findMany`.
+ */
+export const loadGenresByAlbumId = createGroupBatcher(
+  (albumIds: number[]) =>
+    getPrismaClient().albumGenre.findMany({
+      where: { albumId: { in: albumIds } },
+      include: { genre: true },
+    }),
+  (ag) => ag.albumId,
+);
+
+/**
+ * Charge les contributeurs (artistes) d'un album, en regroupant les appels concurrents
+ * en un seul `findMany`.
+ */
+export const loadContributorsByAlbumId = createGroupBatcher(
+  (albumIds: number[]) =>
+    getPrismaClient().albumContributor.findMany({
+      where: { albumId: { in: albumIds } },
+      include: { artist: true },
+    }),
+  (ac) => ac.albumId,
+);
+
+/**
+ * Charge les contributeurs (artistes) d'un track, en regroupant les appels concurrents
+ * en un seul `findMany`.
+ */
+export const loadContributorsByTrackId = createGroupBatcher(
+  (trackIds: bigint[]) =>
+    getPrismaClient().trackContributor.findMany({
+      where: { trackId: { in: trackIds } },
+      include: { artist: true },
+    }),
+  (tc) => tc.trackId,
+);

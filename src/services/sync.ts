@@ -15,10 +15,12 @@ import {
 function toArtistData(a: DeezerArtist) {
   return {
     name: a.name,
-    link: a.link ?? null,
+    share: a.share ?? null,
     picture: a.picture ?? null,
-    nbAlbum: a.nb_album ?? null,
-    nbFan: a.nb_fan ?? null,
+    pictureSmall: a.picture_small ?? null,
+    pictureMedium: a.picture_medium ?? null,
+    pictureBig: a.picture_big ?? null,
+    pictureXl: a.picture_xl ?? null,
   };
 }
 
@@ -26,16 +28,15 @@ function toAlbumData(a: DeezerAlbum, artistId: number) {
   return {
     title: a.title,
     upc: a.upc ?? null,
-    link: a.link ?? null,
+    share: a.share ?? null,
     cover: a.cover ?? null,
-    md5Image: a.md5_image ?? null,
-    label: a.label ?? null,
-    nbTracks: a.nb_tracks ?? null,
-    duration: a.duration ?? null,
-    fans: a.fans ?? null,
+    coverSmall: a.cover_small ?? null,
+    coverMedium: a.cover_medium ?? null,
+    coverBig: a.cover_big ?? null,
+    coverXl: a.cover_xl ?? null,
     releaseDate: a.release_date ?? null,
     recordType: a.record_type ?? null,
-    explicitLyrics: a.explicit_lyrics ?? null,
+    available: a.available ?? null,
     artistId,
   };
 }
@@ -46,15 +47,13 @@ function toTrackData(t: DeezerTrack, artistId: number, albumId: number) {
     titleShort: t.title_short ?? null,
     titleVersion: t.title_version ?? null,
     isrc: t.isrc ?? null,
-    link: t.link ?? null,
+    readable: t.readable ?? null,
+    share: t.share ?? null,
     duration: t.duration,
     trackPosition: t.track_position ?? null,
     diskNumber: t.disk_number ?? null,
     rank: t.rank ?? null,
-    releaseDate: t.release_date ?? null,
     explicitLyrics: t.explicit_lyrics ?? null,
-    preview: t.preview ?? null,
-    bpm: t.bpm ?? null,
     gain: t.gain ?? null,
     artistId,
     albumId,
@@ -83,6 +82,36 @@ async function upsertArtist(a: DeezerArtist) {
   });
 }
 
+async function upsertAlbumGenres(albumId: number, genres: DeezerAlbum['genres']) {
+  if (!genres) return;
+  const prisma = getPrismaClient();
+  for (const g of genres.data) {
+    await prisma.genre.upsert({
+      where: { id: g.id },
+      create: { id: g.id, name: g.name, picture: g.picture ?? null },
+      update: compactForUpdate({ name: g.name, picture: g.picture ?? null }),
+    });
+    await prisma.albumGenre.upsert({
+      where: { albumId_genreId: { albumId, genreId: g.id } },
+      create: { albumId, genreId: g.id },
+      update: {},
+    });
+  }
+}
+
+async function upsertAlbumContributors(albumId: number, contributors: DeezerAlbum['contributors']) {
+  if (!contributors) return;
+  const prisma = getPrismaClient();
+  for (const c of contributors) {
+    await upsertArtist(c);
+    await prisma.albumContributor.upsert({
+      where: { albumId_artistId: { albumId, artistId: c.id } },
+      create: { albumId, artistId: c.id, role: c.role ?? null },
+      update: { role: c.role ?? null },
+    });
+  }
+}
+
 async function upsertAlbum(a: DeezerAlbum, artistId: number) {
   const data = toAlbumData(a, artistId);
   await getPrismaClient().album.upsert({
@@ -90,6 +119,23 @@ async function upsertAlbum(a: DeezerAlbum, artistId: number) {
     create: { id: a.id, ...data },
     update: compactForUpdate(data),
   });
+  // genres/contributors ne sont présents que sur l'album complet (getAlbum), pas sur le
+  // stub allégé imbriqué dans un track de playlist — on ne les touche pas sinon.
+  await upsertAlbumGenres(a.id, a.genres);
+  await upsertAlbumContributors(a.id, a.contributors);
+}
+
+async function upsertTrackContributors(trackId: number, contributors: DeezerTrack['contributors']) {
+  if (!contributors) return;
+  const prisma = getPrismaClient();
+  for (const c of contributors) {
+    await upsertArtist(c);
+    await prisma.trackContributor.upsert({
+      where: { trackId_artistId: { trackId, artistId: c.id } },
+      create: { trackId, artistId: c.id, role: c.role ?? null },
+      update: { role: c.role ?? null },
+    });
+  }
 }
 
 async function upsertTrack(t: DeezerTrack, artistId: number, albumId: number) {
@@ -99,6 +145,9 @@ async function upsertTrack(t: DeezerTrack, artistId: number, albumId: number) {
     create: { id: t.id, ...data },
     update: compactForUpdate(data),
   });
+  // contributors n'est présent que sur un track complet, pas sur tous les stubs allégés
+  // (ex. les tracks embarqués dans une playlist/album en ont, /artist/{id}/top non).
+  await upsertTrackContributors(t.id, t.contributors);
 }
 
 async function persistTrack(track: DeezerTrack) {
@@ -114,11 +163,34 @@ async function persistTrack(track: DeezerTrack) {
  * Upsert l'artiste, l'album et le track pour chaque entrée de la playlist,
  * puis la playlist elle-même et ses associations PlaylistTrack.
  * @param {number | string} deezerId Identifiant Deezer de la playlist.
+ * @param {{ force?: boolean }} [options] `force: true` ignore le `checksum` et resynchronise
+ *   entièrement les tracks même si Deezer indique que le contenu n'a pas changé.
  * @returns {Promise<object>} Playlist Prisma avec tracks inclus.
  */
-export async function syncPlaylist(deezerId: number | string) {
+export async function syncPlaylist(deezerId: number | string, options?: { force?: boolean }) {
   const prisma = getPrismaClient();
   const playlist = await getPlaylist(deezerId);
+
+  // `checksum` change dès que le contenu de la playlist change côté Deezer (tracks ou ordre) ;
+  // s'il est identique à celui déjà en base, la playlist est déjà à jour — inutile de refaire
+  // tout le travail de pagination/upsert des tracks. `force` permet de l'ignorer explicitement.
+  if (!options?.force && playlist.checksum) {
+    const existing = await prisma.playlist.findUnique({
+      where: { id: playlist.id },
+      select: { checksum: true },
+    });
+    if (existing?.checksum === playlist.checksum) {
+      return prisma.playlist.findUniqueOrThrow({
+        where: { id: playlist.id },
+        include: {
+          tracks: {
+            orderBy: { position: 'asc' },
+            include: { track: { include: { artist: true, album: { include: { artist: true } } } } },
+          },
+        },
+      });
+    }
+  }
 
   // Le champ `tracks` embarqué dans /playlist/{id} est parfois plafonné (constaté à 400
   // éléments sur une playlist qui en a 5000+) avec `next` à `null` alors qu'il en reste —
@@ -166,13 +238,13 @@ export async function syncPlaylist(deezerId: number | string) {
   const playlistData = {
     title: playlist.title,
     description: playlist.description ?? null,
-    duration: playlist.duration ?? null,
     public: playlist.public ?? null,
     isLovedTrack: playlist.is_loved_track ?? null,
     collaborative: playlist.collaborative ?? null,
-    fans: playlist.fans ?? null,
-    link: playlist.link ?? null,
+    share: playlist.share ?? null,
     picture: playlist.picture ?? null,
+    creatorId: playlist.creator ? BigInt(playlist.creator.id) : null,
+    creatorName: playlist.creator?.name ?? null,
     checksum: playlist.checksum ?? null,
   };
   await prisma.playlist.upsert({

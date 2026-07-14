@@ -17,8 +17,11 @@ const mockPrisma = {
   artist: { upsert: vi.fn(), findUniqueOrThrow: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
   album: { upsert: vi.fn(), findUniqueOrThrow: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
   track: { upsert: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findMany: vi.fn() },
-  playlist: { upsert: vi.fn(), findUniqueOrThrow: vi.fn(), deleteMany: vi.fn() },
+  playlist: { upsert: vi.fn(), findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), deleteMany: vi.fn() },
   playlistTrack: { upsert: vi.fn(), deleteMany: vi.fn() },
+  genre: { upsert: vi.fn() },
+  albumGenre: { upsert: vi.fn() },
+  albumContributor: { upsert: vi.fn() },
 };
 vi.mock('../plugins/prisma', () => ({
   getPrismaClient: () => mockPrisma,
@@ -86,6 +89,7 @@ const MOCK_TRACK_2: DeezerTrack = { ...MOCK_TRACK, id: 2, title: 'Track Two' };
 describe('sync service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPrisma.playlist.findUnique.mockResolvedValue(null);
     mockPrisma.playlist.findUniqueOrThrow.mockResolvedValue({ id: 30, tracks: [] });
     mockPrisma.album.findUniqueOrThrow.mockResolvedValue({ id: 20, tracks: [] });
     mockPrisma.artist.findUniqueOrThrow.mockResolvedValue({ id: 10 });
@@ -282,6 +286,59 @@ describe('sync service', () => {
       await syncPlaylist(30);
 
       expect(getPlaylistTrackIds).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('syncPlaylist checksum short-circuit', () => {
+    it('skips refetching/resyncing tracks when checksum matches the existing DB row', async () => {
+      const playlistWithChecksum: DeezerPlaylist = { ...MOCK_PLAYLIST, checksum: 'abc123' };
+      vi.mocked(getPlaylist).mockResolvedValue(playlistWithChecksum);
+      mockPrisma.playlist.findUnique.mockResolvedValue({ checksum: 'abc123' });
+
+      await syncPlaylist(30);
+
+      expect(deezerFetchAll).not.toHaveBeenCalled();
+      expect(deezerFetchAllFrom).not.toHaveBeenCalled();
+      expect(mockPrisma.track.upsert).not.toHaveBeenCalled();
+      expect(mockPrisma.playlist.upsert).not.toHaveBeenCalled();
+    });
+
+    it('resyncs fully when checksum differs from the existing DB row', async () => {
+      const playlistWithChecksum: DeezerPlaylist = { ...MOCK_PLAYLIST, checksum: 'new-checksum' };
+      vi.mocked(getPlaylist).mockResolvedValue(playlistWithChecksum);
+      mockPrisma.playlist.findUnique.mockResolvedValue({ checksum: 'old-checksum' });
+      vi.mocked(deezerFetchAll).mockResolvedValue([MOCK_TRACK]);
+
+      await syncPlaylist(30);
+
+      expect(deezerFetchAll).toHaveBeenCalled();
+      expect(mockPrisma.track.upsert).toHaveBeenCalled();
+      expect(mockPrisma.playlist.upsert).toHaveBeenCalled();
+    });
+
+    it('resyncs fully when no existing DB row (first sync)', async () => {
+      const playlistWithChecksum: DeezerPlaylist = { ...MOCK_PLAYLIST, checksum: 'abc123' };
+      vi.mocked(getPlaylist).mockResolvedValue(playlistWithChecksum);
+      mockPrisma.playlist.findUnique.mockResolvedValue(null);
+      vi.mocked(deezerFetchAll).mockResolvedValue([MOCK_TRACK]);
+
+      await syncPlaylist(30);
+
+      expect(deezerFetchAll).toHaveBeenCalled();
+      expect(mockPrisma.track.upsert).toHaveBeenCalled();
+    });
+
+    it('resyncs fully when force is true, even if checksum matches', async () => {
+      const playlistWithChecksum: DeezerPlaylist = { ...MOCK_PLAYLIST, checksum: 'abc123' };
+      vi.mocked(getPlaylist).mockResolvedValue(playlistWithChecksum);
+      mockPrisma.playlist.findUnique.mockResolvedValue({ checksum: 'abc123' });
+      vi.mocked(deezerFetchAll).mockResolvedValue([MOCK_TRACK]);
+
+      await syncPlaylist(30, { force: true });
+
+      expect(mockPrisma.playlist.findUnique).not.toHaveBeenCalled();
+      expect(deezerFetchAll).toHaveBeenCalled();
+      expect(mockPrisma.track.upsert).toHaveBeenCalled();
     });
   });
 

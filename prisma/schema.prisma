@@ -10,12 +10,13 @@ model Artist {
   id      Int     @id
   // COLLATE case_insensitive (migration 20260711065718) — pas modélisé par Prisma,
   // ne pas recréer cette colonne (db push/migrate) sans réappliquer la collation.
-  name    String
-  link    String?
-  // base URL — append ?size=small|medium|big|xl
-  picture String?
-  nbAlbum Int?
-  nbFan   Int?
+  name          String
+  share         String?
+  picture       String?
+  pictureSmall  String?
+  pictureMedium String?
+  pictureBig    String?
+  pictureXl     String?
   // favori Deezer de l'utilisateur (Pipe API)
   isFavorite Boolean?
   // épinglage local Carmen — indépendant de Deezer
@@ -23,38 +24,70 @@ model Artist {
   // rang dans l'ordre manuel unifié des pins (tous types confondus) — null si pas épinglé
   pinnedOrder Int?
 
-  albums Album[]
-  tracks Track[]
+  albums              Album[]
+  tracks              Track[]
+  albumContributions  AlbumContributor[]
+  trackContributions  TrackContributor[]
+  folders             ArtistFolder[]
 }
 
 model Album {
-  id             Int      @id
+  id          Int      @id
   // COLLATE case_insensitive (migration 20260711065718) — pas modélisé par Prisma,
   // ne pas recréer cette colonne (db push/migrate) sans réappliquer la collation.
-  title          String
-  upc            String?
-  link           String?
-  // base URL — append ?size=small|medium|big|xl
-  cover          String?
-  md5Image       String?
-  label          String?
-  nbTracks       Int?
-  duration       Int?
-  fans           Int?
-  releaseDate    String?
-  recordType     String?
-  explicitLyrics Boolean?
+  title       String
+  upc         String?
+  share       String?
+  cover       String?
+  coverSmall  String?
+  coverMedium String?
+  coverBig    String?
+  coverXl     String?
+  releaseDate String?
+  recordType  String?
+  available   Boolean?
   // favori Deezer de l'utilisateur (Pipe API)
-  isFavorite     Boolean?
+  isFavorite  Boolean?
   // épinglage local Carmen — indépendant de Deezer
-  isPinned       Boolean  @default(false)
+  isPinned    Boolean  @default(false)
   // rang dans l'ordre manuel unifié des pins (tous types confondus) — null si pas épinglé
-  pinnedOrder    Int?
+  pinnedOrder Int?
 
   artistId Int
   artist   Artist @relation(fields: [artistId], references: [id])
 
-  tracks Track[]
+  tracks       Track[]
+  genres       AlbumGenre[]
+  contributors AlbumContributor[]
+  folders      AlbumFolder[]
+}
+
+model Genre {
+  id      Int     @id
+  name    String
+  picture String?
+
+  albums AlbumGenre[]
+}
+
+model AlbumGenre {
+  albumId Int
+  album   Album @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  genreId Int
+  genre   Genre @relation(fields: [genreId], references: [id])
+
+  @@id([albumId, genreId])
+}
+
+model AlbumContributor {
+  albumId  Int
+  album    Album  @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  artistId Int
+  artist   Artist @relation(fields: [artistId], references: [id])
+  // "Main", "Featured", etc. (tel que renvoyé par Deezer)
+  role     String?
+
+  @@id([albumId, artistId])
 }
 
 model Track {
@@ -65,16 +98,13 @@ model Track {
   titleShort     String?
   titleVersion   String?
   isrc           String?
-  link           String?
+  readable       Boolean?
+  share          String?
   duration       Int
   trackPosition  Int?
   diskNumber     Int?
   rank           Int?
-  releaseDate    String?
   explicitLyrics Boolean?
-  preview        String?
-  // Deezer bpm/gain (from track object)
-  bpm            Float?
   gain           Float?
   // favori Deezer de l'utilisateur (Pipe API) — indépendant de la présence dans une playlist
   isFavorite     Boolean?
@@ -84,6 +114,8 @@ model Track {
 
   albumId Int
   album   Album  @relation(fields: [albumId], references: [id])
+
+  contributors TrackContributor[]
 
   // --- freqblog audio features ---
   fbBpm                        Float?
@@ -110,15 +142,28 @@ model Track {
   fbGenre                      String?
   // { gender, timbre, tonal_atonal }
   fbExtended                   Json?
-  fbFeatureSource              String?
-  fbRepresentativeSegmentStart Float?
   fbOnsetRate                  Float?
   fbDynamicComplexity          Float?
   fbTuningFrequency            Float?
   fbAverageLoudness            Float?
+  fbIsRemix                    Boolean?
+  fbMixName                    String?
+  fbRemixer                    String?
+  fbRemixOfIsrc                String?
 
   playlists      PlaylistTrack[]
   historyEntries HistoryEntry[]
+}
+
+model TrackContributor {
+  trackId  BigInt
+  track    Track  @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  artistId Int
+  artist   Artist @relation(fields: [artistId], references: [id])
+  // "Main", "Featured", etc. (tel que renvoyé par Deezer)
+  role     String?
+
+  @@id([trackId, artistId])
 }
 
 model Playlist {
@@ -128,24 +173,25 @@ model Playlist {
   // ne pas recréer cette colonne (db push/migrate) sans réappliquer la collation.
   title         String
   description   String?
-  duration      Int?
   public        Boolean?
   isLovedTrack  Boolean?
   collaborative Boolean?
-  fans          Int?
-  link          String?
+  share         String?
   // base URL — append ?size=small|medium|big|xl
   picture       String?
+  // créateur Deezer de la playlist (pas de modèle User dédié — pas d'autre usage à ce jour)
+  creatorId     BigInt?
+  creatorName   String?
+  // permet de sauter la resynchro des tracks quand le contenu n'a pas changé côté Deezer
+  // (cf. syncPlaylist, param `force` pour l'ignorer et forcer une resynchro complète)
   checksum      String?
   // épinglage local Carmen — indépendant de Deezer
   isPinned      Boolean  @default(false)
   // rang dans l'ordre manuel unifié des pins (tous types confondus) — null si pas épinglé
   pinnedOrder   Int?
 
-  folderId Int?
-  folder   Folder? @relation(fields: [folderId], references: [id])
-
-  tracks PlaylistTrack[]
+  folders PlaylistFolder[]
+  tracks  PlaylistTrack[]
 }
 
 model PlaylistTrack {
@@ -165,7 +211,36 @@ model Folder {
   id   Int    @id @default(autoincrement())
   name String
 
-  playlists Playlist[]
+  artists   ArtistFolder[]
+  albums    AlbumFolder[]
+  playlists PlaylistFolder[]
+}
+
+model ArtistFolder {
+  artistId Int
+  artist   Artist @relation(fields: [artistId], references: [id])
+  folderId Int
+  folder   Folder @relation(fields: [folderId], references: [id], onDelete: Cascade)
+
+  @@id([artistId, folderId])
+}
+
+model AlbumFolder {
+  albumId  Int
+  album    Album  @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  folderId Int
+  folder   Folder @relation(fields: [folderId], references: [id], onDelete: Cascade)
+
+  @@id([albumId, folderId])
+}
+
+model PlaylistFolder {
+  playlistId BigInt
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  folderId   Int
+  folder     Folder   @relation(fields: [folderId], references: [id], onDelete: Cascade)
+
+  @@id([playlistId, folderId])
 }
 
 model HistoryEntry {
