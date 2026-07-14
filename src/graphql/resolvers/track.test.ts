@@ -12,6 +12,7 @@ const mockPrisma = {
   track: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn() },
   artist: { findMany: vi.fn() },
   album: { findMany: vi.fn() },
+  trackContributor: { findMany: vi.fn() },
 };
 vi.mock('../../plugins/prisma', () => ({
   getPrismaClient: () => mockPrisma,
@@ -52,13 +53,13 @@ const MOCK_TRACK: DeezerTrack = {
   title_short: 'Harder, Better',
   isrc: 'GBDUW0000059',
   link: 'https://www.deezer.com/track/1',
+  readable: true,
+  share: 'https://www.deezer.com/track/1?utm_source=deezer',
   duration: 226,
   rank: 900000,
-  release_date: '2001-03-07',
   explicit_lyrics: false,
-  preview: 'https://cdns-preview.deezer.com/stream/test.mp3',
-  bpm: 123.4,
   gain: -8.5,
+  contributors: [{ ...MOCK_ARTIST, role: 'Main' }],
   artist: MOCK_ARTIST,
   album: MOCK_ALBUM,
   type: 'track',
@@ -88,14 +89,14 @@ describe('mapTrack', () => {
     expect(result.id).toBe('1');
     expect(result.title).toBe('Harder, Better, Faster, Stronger');
     expect(result.duration).toBe(226);
-    expect(result.bpm).toBe(123.4);
+    expect(result.readable).toBe(true);
+    expect(result.share).toBe('https://www.deezer.com/track/1?utm_source=deezer');
     expect(result.gain).toBe(-8.5);
   });
 
-  it('maps title_short → titleShort, release_date → releaseDate, explicit_lyrics → explicitLyrics', () => {
+  it('maps title_short → titleShort, explicit_lyrics → explicitLyrics', () => {
     const result = mapTrack(MOCK_TRACK);
     expect(result.titleShort).toBe('Harder, Better');
-    expect(result.releaseDate).toBe('2001-03-07');
     expect(result.explicitLyrics).toBe(false);
   });
 
@@ -103,6 +104,12 @@ describe('mapTrack', () => {
     const result = mapTrack(MOCK_TRACK);
     expect(result.artist.id).toBe('10');
     expect(result.artist.name).toBe('Daft Punk');
+  });
+
+  it('maps contributors', () => {
+    const result = mapTrack(MOCK_TRACK);
+    expect(result.contributors).toHaveLength(1);
+    expect(result.contributors![0].id).toBe('10');
   });
 
   it('maps inline nested album', () => {
@@ -113,12 +120,14 @@ describe('mapTrack', () => {
   });
 
   it('sets nullable fields to null when absent', () => {
-    const { title_short: _ts, isrc: _i, bpm: _b, gain: _g, ...minimal } = MOCK_TRACK;
+    const { title_short: _ts, isrc: _i, readable: _r, share: _s, gain: _g, contributors: _c, ...minimal } = MOCK_TRACK;
     const result = mapTrack(minimal as DeezerTrack);
     expect(result.titleShort).toBeNull();
     expect(result.isrc).toBeNull();
-    expect(result.bpm).toBeNull();
+    expect(result.readable).toBeNull();
+    expect(result.share).toBeNull();
     expect(result.gain).toBeNull();
+    expect(result.contributors).toBeNull();
   });
 
   it('sets isFavorite to null (not derivable from the public Deezer REST endpoint)', () => {
@@ -130,10 +139,12 @@ describe('mapTrack', () => {
 const MOCK_DB_ARTIST = {
   id: 10,
   name: 'Daft Punk',
-  link: null,
+  share: null,
   picture: null,
-  nbAlbum: null,
-  nbFan: null,
+  pictureSmall: null,
+  pictureMedium: null,
+  pictureBig: null,
+  pictureXl: null,
 };
 
 const MOCK_DB_TRACK = {
@@ -142,15 +153,13 @@ const MOCK_DB_TRACK = {
   titleShort: null,
   titleVersion: null,
   isrc: null,
-  link: null,
+  readable: null,
+  share: null,
   duration: 226,
   trackPosition: null,
   diskNumber: null,
   rank: null,
-  releaseDate: null,
   explicitLyrics: null,
-  preview: null,
-  bpm: null,
   gain: null,
   artistId: 10,
   albumId: 20,
@@ -255,6 +264,28 @@ describe('Track.album', () => {
     const result = await trackResolvers.Track.album(MOCK_DB_TRACK);
     expect(mockPrisma.album.findMany).toHaveBeenCalledWith({ where: { id: { in: [20] } } });
     expect(result).toEqual(dbAlbum);
+  });
+});
+
+describe('Track.contributors', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns parent.contributors directly when already resolved (Deezer fallback)', async () => {
+    const mappedTrack = mapTrack(MOCK_TRACK);
+    const result = await trackResolvers.Track.contributors(mappedTrack);
+    expect(mockPrisma.trackContributor.findMany).not.toHaveBeenCalled();
+    expect(result).toBe(mappedTrack.contributors);
+  });
+
+  it('loads from Prisma via TrackContributor when not already resolved (DB row), batched via findMany', async () => {
+    mockPrisma.trackContributor.findMany.mockResolvedValue([
+      { trackId: 1n, artistId: 10, role: 'Main', artist: MOCK_DB_ARTIST },
+    ]);
+    const result = await trackResolvers.Track.contributors(MOCK_DB_TRACK);
+    expect(mockPrisma.trackContributor.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { trackId: { in: [1n] } } }),
+    );
+    expect(result).toEqual([MOCK_DB_ARTIST]);
   });
 });
 

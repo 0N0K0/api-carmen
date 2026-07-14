@@ -2,7 +2,7 @@ import { getTrack, getStreamUrl, searchDeezer } from '../../services/deezer';
 import { getPrismaClient } from '../../plugins/prisma';
 import { mapTrack, mapAlbum, mapArtist, mapPlaylist } from './mappers';
 import { paginate, parseDbId } from './pagination';
-import { loadArtistById, loadAlbumById } from './loaders';
+import { loadArtistById, loadAlbumById, loadContributorsByTrackId } from './loaders';
 
 export { mapTrack };
 
@@ -12,6 +12,7 @@ type TrackParent = {
   albumId?: number;
   artist?: unknown;
   album?: unknown;
+  contributors?: unknown;
 };
 
 export const trackResolvers = {
@@ -125,6 +126,18 @@ export const trackResolvers = {
     album: async (parent: TrackParent) => {
       if ('album' in parent) return parent.album;
       return loadAlbumById(parent.albumId as number);
+    },
+
+    /**
+     * Résout les contributeurs (artistes) d'un track : déjà présents (résultat Deezer) sinon
+     * chargés depuis Prisma via la table de jonction `TrackContributor`.
+     * @param {TrackParent} parent Track parent (ligne Prisma ou track Deezer mappé).
+     * @returns {Promise<unknown>} Contributeurs du track.
+     */
+    contributors: async (parent: TrackParent) => {
+      if ('contributors' in parent) return parent.contributors;
+      const rows = await loadContributorsByTrackId(BigInt(parent.id as bigint | number | string));
+      return rows.map((r) => r.artist);
     },
   },
 };

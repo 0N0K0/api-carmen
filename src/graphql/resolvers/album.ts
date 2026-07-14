@@ -2,11 +2,18 @@ import { getAlbum } from '../../services/deezer';
 import { getPrismaClient } from '../../plugins/prisma';
 import { mapAlbum } from './mappers';
 import { paginate, parseDbId, sortDirection } from './pagination';
-import { loadArtistById, loadTracksByAlbumId } from './loaders';
+import { loadArtistById, loadContributorsByAlbumId, loadGenresByAlbumId, loadTracksByAlbumId } from './loaders';
 
 export { mapAlbum };
 
-type AlbumParent = { id: number | string; artistId?: number; artist?: unknown; tracks?: unknown };
+type AlbumParent = {
+  id: number | string;
+  artistId?: number;
+  artist?: unknown;
+  tracks?: unknown;
+  genres?: unknown;
+  contributors?: unknown;
+};
 
 export const albumResolvers = {
   Query: {
@@ -78,6 +85,30 @@ export const albumResolvers = {
     tracks: async (parent: AlbumParent) => {
       if ('tracks' in parent) return parent.tracks;
       return loadTracksByAlbumId(Number(parent.id));
+    },
+
+    /**
+     * Résout les genres d'un album : déjà présents (résultat Deezer) sinon chargés depuis
+     * Prisma via la table de jonction `AlbumGenre`, quelle que soit la profondeur de la requête.
+     * @param {AlbumParent} parent Album parent (ligne Prisma ou album Deezer mappé).
+     * @returns {Promise<unknown>} Genres de l'album.
+     */
+    genres: async (parent: AlbumParent) => {
+      if ('genres' in parent) return parent.genres;
+      const rows = await loadGenresByAlbumId(Number(parent.id));
+      return rows.map((r) => r.genre);
+    },
+
+    /**
+     * Résout les contributeurs (artistes) d'un album : déjà présents (résultat Deezer) sinon
+     * chargés depuis Prisma via la table de jonction `AlbumContributor`.
+     * @param {AlbumParent} parent Album parent (ligne Prisma ou album Deezer mappé).
+     * @returns {Promise<unknown>} Contributeurs de l'album.
+     */
+    contributors: async (parent: AlbumParent) => {
+      if ('contributors' in parent) return parent.contributors;
+      const rows = await loadContributorsByAlbumId(Number(parent.id));
+      return rows.map((r) => r.artist);
     },
   },
 };

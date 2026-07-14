@@ -4,13 +4,15 @@ import { mapPrismaAlbum, mapPrismaArtist, mapPrismaPlaylist, mapPrismaTrack } fr
 export const syncResolvers = {
   Mutation: {
     /**
-     * Synchronise une playlist Deezer dans la base de données.
+     * Synchronise une playlist Deezer dans la base de données. Par défaut, si le `checksum`
+     * Deezer n'a pas changé depuis la dernière synchro, les tracks ne sont pas retouchés
+     * (cf. `syncPlaylist` service) — `force: true` ignore ce raccourci.
      * @param {unknown} _ Parent (non utilisé).
-     * @param {{ deezerId: string }} args Arguments de la mutation.
+     * @param {{ deezerId: string; force?: boolean }} args Arguments de la mutation.
      * @returns {Promise<object>} Playlist mappée au format GraphQL.
      */
-    syncPlaylist: async (_: unknown, args: { deezerId: string }) => {
-      const playlist = await syncPlaylist(args.deezerId);
+    syncPlaylist: async (_: unknown, args: { deezerId: string; force?: boolean }) => {
+      const playlist = await syncPlaylist(args.deezerId, { force: args.force });
       return mapPrismaPlaylist(playlist);
     },
 

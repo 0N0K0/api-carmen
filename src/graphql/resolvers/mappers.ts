@@ -1,5 +1,14 @@
-import type { Artist, Album, Track, PlaylistTrack, Playlist } from '@prisma/client';
-import { DeezerAlbum, DeezerArtist, DeezerPlaylist, DeezerTrack } from '../../types/deezer';
+import type { Artist, Album, Track, PlaylistTrack, Playlist, Genre } from '@prisma/client';
+import { DeezerAlbum, DeezerArtist, DeezerGenre, DeezerPlaylist, DeezerTrack } from '../../types/deezer';
+
+/**
+ * Mappe un genre Deezer vers le format GraphQL.
+ * @param {DeezerGenre} g Genre Deezer brut.
+ * @returns {object} Genre au format GraphQL.
+ */
+export function mapGenre(g: DeezerGenre) {
+  return { id: String(g.id), name: g.name, picture: g.picture ?? null };
+}
 
 /**
  * Mappe un artiste Deezer vers le format GraphQL.
@@ -10,10 +19,12 @@ export function mapArtist(a: DeezerArtist) {
   return {
     id: String(a.id),
     name: a.name,
-    link: a.link ?? null,
+    share: a.share ?? null,
     picture: a.picture ?? null,
-    nbAlbum: a.nb_album ?? null,
-    nbFan: a.nb_fan ?? null,
+    pictureSmall: a.picture_small ?? null,
+    pictureMedium: a.picture_medium ?? null,
+    pictureBig: a.picture_big ?? null,
+    pictureXl: a.picture_xl ?? null,
     isFavorite: null,
     isPinned: false,
     pinnedOrder: null,
@@ -32,34 +43,35 @@ export function mapTrack(t: DeezerTrack) {
     title: t.title,
     titleShort: t.title_short ?? null,
     isrc: t.isrc ?? null,
-    link: t.link ?? null,
+    readable: t.readable ?? null,
+    share: t.share ?? null,
     duration: t.duration,
     rank: t.rank ?? null,
-    releaseDate: t.release_date ?? null,
     explicitLyrics: t.explicit_lyrics ?? null,
-    preview: t.preview ?? null,
-    bpm: t.bpm ?? null,
     gain: t.gain ?? null,
     isFavorite: null,
     artist: mapArtist(t.artist),
+    contributors: t.contributors?.map(mapArtist) ?? null,
     album: {
       id: String(t.album.id),
       title: t.album.title,
       upc: null,
-      link: t.album.link ?? null,
+      share: null,
       cover: t.album.cover ?? null,
-      label: null,
-      nbTracks: null,
-      duration: null,
-      fans: null,
+      coverSmall: null,
+      coverMedium: null,
+      coverBig: null,
+      coverXl: null,
       releaseDate: null,
       recordType: null,
-      explicitLyrics: null,
+      available: null,
       isFavorite: null,
       isPinned: false,
       pinnedOrder: null,
       artist: null,
       tracks: null,
+      genres: null,
+      contributors: null,
     },
   };
 }
@@ -74,20 +86,22 @@ export function mapAlbum(a: DeezerAlbum) {
     id: String(a.id),
     title: a.title,
     upc: a.upc ?? null,
-    link: a.link ?? null,
+    share: a.share ?? null,
     cover: a.cover ?? null,
-    label: a.label ?? null,
-    nbTracks: a.nb_tracks ?? null,
-    duration: a.duration ?? null,
-    fans: a.fans ?? null,
+    coverSmall: a.cover_small ?? null,
+    coverMedium: a.cover_medium ?? null,
+    coverBig: a.cover_big ?? null,
+    coverXl: a.cover_xl ?? null,
     releaseDate: a.release_date ?? null,
     recordType: a.record_type ?? null,
-    explicitLyrics: a.explicit_lyrics ?? null,
+    available: a.available ?? null,
     isFavorite: null,
     isPinned: false,
     pinnedOrder: null,
     artist: a.artist ? mapArtist(a.artist) : null,
     tracks: a.tracks?.data.map(mapTrack) ?? null,
+    genres: a.genres?.data.map(mapGenre) ?? null,
+    contributors: a.contributors?.map(mapArtist) ?? null,
   };
 }
 
@@ -101,13 +115,13 @@ export function mapPlaylist(p: DeezerPlaylist) {
     id: String(p.id),
     title: p.title,
     description: p.description ?? null,
-    duration: p.duration ?? null,
     public: p.public ?? null,
     isLovedTrack: p.is_loved_track ?? null,
     collaborative: p.collaborative ?? null,
-    fans: p.fans ?? null,
-    link: p.link ?? null,
+    share: p.share ?? null,
     picture: p.picture ?? null,
+    creatorId: p.creator ? String(p.creator.id) : null,
+    creatorName: p.creator?.name ?? null,
     checksum: p.checksum ?? null,
     isPinned: false,
     pinnedOrder: null,
@@ -120,29 +134,47 @@ export function mapPlaylist(p: DeezerPlaylist) {
 // ---------------------------------------------------------------------------
 
 type PrismaArtistShape = Artist;
-type PrismaAlbumShape = Album & { artist?: Artist | null; tracks?: PrismaTrackShape[] };
-type PrismaTrackShape = Track & { artist?: Artist | null; album?: PrismaAlbumShape | null };
+type PrismaAlbumShape = Album & {
+  artist?: Artist | null;
+  tracks?: PrismaTrackShape[];
+  genres?: Genre[];
+  contributors?: Artist[];
+};
+type PrismaTrackShape = Track & {
+  artist?: Artist | null;
+  album?: PrismaAlbumShape | null;
+  contributors?: Artist[];
+};
 type PrismaPlaylistShape = Playlist & {
   tracks?: (PlaylistTrack & { track: PrismaTrackShape })[];
 };
 
 type GqlArtist = {
-  id: string; name: string; link: string | null; picture: string | null;
-  nbAlbum: number | null; nbFan: number | null; isFavorite: boolean | null;
+  id: string; name: string; share: string | null; picture: string | null;
+  pictureSmall: string | null; pictureMedium: string | null; pictureBig: string | null;
+  pictureXl: string | null; isFavorite: boolean | null;
   isPinned: boolean; pinnedOrder: number | null;
 };
+type GqlGenre = { id: string; name: string; picture: string | null };
+// `artist`/`tracks`/`genres`/`contributors` sont optionnels ici volontairement : les résolveurs
+// de champ (album.ts/track.ts) décident de charger paresseusement via `'x' in parent` — la clé
+// ne doit être présente QUE si la relation a réellement été chargée (même à `null`), sinon un
+// resync (qui n'inclut pas toujours toutes les relations) ferait croire à tort qu'un champ non
+// chargé vaut `null`, et sauterait le lazy-load.
 type GqlTrack = {
   id: string; title: string; titleShort: string | null; isrc: string | null;
-  link: string | null; duration: number; rank: number | null; releaseDate: string | null;
-  explicitLyrics: boolean | null; preview: string | null; bpm: number | null;
-  gain: number | null; isFavorite: boolean | null; artist: GqlArtist | null; album: GqlAlbum | null;
+  readable: boolean | null; share: string | null; duration: number; rank: number | null;
+  explicitLyrics: boolean | null;
+  gain: number | null; isFavorite: boolean | null; artist?: GqlArtist | null; album?: GqlAlbum | null;
+  contributors?: GqlArtist[] | null;
 };
 type GqlAlbum = {
-  id: string; title: string; upc: string | null; link: string | null; cover: string | null;
-  label: string | null; nbTracks: number | null; duration: number | null; fans: number | null;
-  releaseDate: string | null; recordType: string | null; explicitLyrics: boolean | null;
+  id: string; title: string; upc: string | null; share: string | null; cover: string | null;
+  coverSmall: string | null; coverMedium: string | null; coverBig: string | null; coverXl: string | null;
+  releaseDate: string | null; recordType: string | null; available: boolean | null;
   isFavorite: boolean | null; isPinned: boolean; pinnedOrder: number | null;
-  artist: GqlArtist | null; tracks: GqlTrack[] | null;
+  artist?: GqlArtist | null; tracks?: GqlTrack[] | null;
+  genres?: GqlGenre[] | null; contributors?: GqlArtist[] | null;
 };
 
 /**
@@ -154,10 +186,12 @@ export function mapPrismaArtist(a: PrismaArtistShape): GqlArtist {
   return {
     id: String(a.id),
     name: a.name,
-    link: a.link,
+    share: a.share,
     picture: a.picture,
-    nbAlbum: a.nbAlbum,
-    nbFan: a.nbFan,
+    pictureSmall: a.pictureSmall,
+    pictureMedium: a.pictureMedium,
+    pictureBig: a.pictureBig,
+    pictureXl: a.pictureXl,
     isFavorite: a.isFavorite,
     isPinned: a.isPinned,
     pinnedOrder: a.pinnedOrder,
@@ -175,17 +209,16 @@ export function mapPrismaTrack(t: PrismaTrackShape): GqlTrack {
     title: t.title,
     titleShort: t.titleShort,
     isrc: t.isrc,
-    link: t.link,
+    readable: t.readable,
+    share: t.share,
     duration: t.duration,
     rank: t.rank,
-    releaseDate: t.releaseDate,
     explicitLyrics: t.explicitLyrics,
-    preview: t.preview,
-    bpm: t.bpm,
     gain: t.gain,
     isFavorite: t.isFavorite,
-    artist: t.artist ? mapPrismaArtist(t.artist) : null,
-    album: t.album ? mapPrismaAlbum(t.album) : null,
+    ...(t.artist !== undefined && { artist: t.artist ? mapPrismaArtist(t.artist) : null }),
+    ...(t.album !== undefined && { album: t.album ? mapPrismaAlbum(t.album) : null }),
+    ...(t.contributors !== undefined && { contributors: t.contributors.map(mapPrismaArtist) }),
   };
 }
 
@@ -199,20 +232,24 @@ export function mapPrismaAlbum(a: PrismaAlbumShape): GqlAlbum {
     id: String(a.id),
     title: a.title,
     upc: a.upc,
-    link: a.link,
+    share: a.share,
     cover: a.cover,
-    label: a.label,
-    nbTracks: a.nbTracks,
-    duration: a.duration,
-    fans: a.fans,
+    coverSmall: a.coverSmall,
+    coverMedium: a.coverMedium,
+    coverBig: a.coverBig,
+    coverXl: a.coverXl,
     releaseDate: a.releaseDate,
     recordType: a.recordType,
-    explicitLyrics: a.explicitLyrics,
+    available: a.available,
     isFavorite: a.isFavorite,
     isPinned: a.isPinned,
     pinnedOrder: a.pinnedOrder,
-    artist: a.artist ? mapPrismaArtist(a.artist) : null,
-    tracks: a.tracks?.map(mapPrismaTrack) ?? null,
+    ...(a.artist !== undefined && { artist: a.artist ? mapPrismaArtist(a.artist) : null }),
+    ...(a.tracks !== undefined && { tracks: a.tracks.map(mapPrismaTrack) }),
+    ...(a.genres !== undefined && {
+      genres: a.genres.map((g) => ({ id: String(g.id), name: g.name, picture: g.picture })),
+    }),
+    ...(a.contributors !== undefined && { contributors: a.contributors.map(mapPrismaArtist) }),
   };
 }
 
@@ -226,16 +263,16 @@ export function mapPrismaPlaylist(p: PrismaPlaylistShape) {
     id: String(p.id),
     title: p.title,
     description: p.description,
-    duration: p.duration,
     public: p.public,
     isLovedTrack: p.isLovedTrack,
     collaborative: p.collaborative,
-    fans: p.fans,
-    link: p.link,
+    share: p.share,
     picture: p.picture,
+    creatorId: p.creatorId !== null ? String(p.creatorId) : null,
+    creatorName: p.creatorName,
     checksum: p.checksum,
     isPinned: p.isPinned,
     pinnedOrder: p.pinnedOrder,
-    tracks: p.tracks?.map((pt) => mapPrismaTrack(pt.track)) ?? null,
+    ...(p.tracks !== undefined && { tracks: p.tracks.map((pt) => mapPrismaTrack(pt.track)) }),
   };
 }

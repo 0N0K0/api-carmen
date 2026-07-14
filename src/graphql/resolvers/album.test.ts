@@ -10,6 +10,8 @@ const mockPrisma = {
   album: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn() },
   artist: { findMany: vi.fn() },
   track: { findMany: vi.fn() },
+  albumGenre: { findMany: vi.fn() },
+  albumContributor: { findMany: vi.fn() },
 };
 vi.mock('../../plugins/prisma', () => ({
   getPrismaClient: () => mockPrisma,
@@ -45,18 +47,17 @@ const MOCK_ALBUM: DeezerAlbum = {
   title: 'Discovery',
   upc: '724384960255',
   link: 'https://www.deezer.com/album/20',
+  share: 'https://www.deezer.com/album/20?utm_source=deezer',
   cover: 'https://api.deezer.com/album/20/image',
-  cover_small: '',
-  cover_medium: '',
-  cover_big: '',
-  cover_xl: '',
-  label: 'Virgin',
-  nb_tracks: 14,
-  duration: 3600,
-  fans: 800000,
+  cover_small: 'https://cdn-images.dzcdn.net/images/cover/x/56x56.jpg',
+  cover_medium: 'https://cdn-images.dzcdn.net/images/cover/x/250x250.jpg',
+  cover_big: 'https://cdn-images.dzcdn.net/images/cover/x/500x500.jpg',
+  cover_xl: 'https://cdn-images.dzcdn.net/images/cover/x/1000x1000.jpg',
+  genres: { data: [{ id: 132, name: 'Pop', picture: 'https://api.deezer.com/genre/132/image', type: 'genre' }] },
   release_date: '2001-03-07',
   record_type: 'album',
-  explicit_lyrics: false,
+  available: true,
+  contributors: [{ ...MOCK_ARTIST, role: 'Main' }],
   artist: MOCK_ARTIST,
   tracks: { data: [MOCK_TRACK] },
   tracklist: '',
@@ -69,19 +70,17 @@ describe('mapAlbum', () => {
     expect(result.id).toBe('20');
     expect(result.title).toBe('Discovery');
     expect(result.upc).toBe('724384960255');
-    expect(result.label).toBe('Virgin');
-    expect(result.nbTracks).toBe(14);
+    expect(result.share).toBe('https://www.deezer.com/album/20?utm_source=deezer');
     expect(result.releaseDate).toBe('2001-03-07');
     expect(result.recordType).toBe('album');
-    expect(result.explicitLyrics).toBe(false);
+    expect(result.available).toBe(true);
   });
 
-  it('maps nb_tracks → nbTracks, release_date → releaseDate, record_type → recordType, explicit_lyrics → explicitLyrics', () => {
+  it('maps release_date → releaseDate, record_type → recordType, available', () => {
     const result = mapAlbum(MOCK_ALBUM);
-    expect(result.nbTracks).toBe(14);
     expect(result.releaseDate).toBe('2001-03-07');
     expect(result.recordType).toBe('album');
-    expect(result.explicitLyrics).toBe(false);
+    expect(result.available).toBe(true);
   });
 
   it('maps nested artist', () => {
@@ -96,30 +95,52 @@ describe('mapAlbum', () => {
     expect(result.tracks![0].title).toBe('One More Time');
   });
 
-  it('sets artist and tracks to null when absent', () => {
-    const { artist: _a, tracks: _t, ...minimal } = MOCK_ALBUM;
+  it('maps genres', () => {
+    const result = mapAlbum(MOCK_ALBUM);
+    expect(result.genres).toEqual([{ id: '132', name: 'Pop', picture: 'https://api.deezer.com/genre/132/image' }]);
+  });
+
+  it('maps contributors', () => {
+    const result = mapAlbum(MOCK_ALBUM);
+    expect(result.contributors).toHaveLength(1);
+    expect(result.contributors![0].id).toBe('10');
+    expect(result.contributors![0].name).toBe('Daft Punk');
+  });
+
+  it('sets artist, tracks, genres and contributors to null when absent', () => {
+    const { artist: _a, tracks: _t, genres: _g, contributors: _c, ...minimal } = MOCK_ALBUM;
     const result = mapAlbum(minimal as DeezerAlbum);
     expect(result.artist).toBeNull();
     expect(result.tracks).toBeNull();
+    expect(result.genres).toBeNull();
+    expect(result.contributors).toBeNull();
   });
 });
 
-const MOCK_DB_ARTIST = { id: 10, name: 'Daft Punk', link: null, picture: null, nbAlbum: null, nbFan: null };
+const MOCK_DB_ARTIST = {
+  id: 10,
+  name: 'Daft Punk',
+  share: null,
+  picture: null,
+  pictureSmall: null,
+  pictureMedium: null,
+  pictureBig: null,
+  pictureXl: null,
+};
 
 const MOCK_DB_ALBUM = {
   id: 20,
   title: 'Discovery',
   upc: null,
-  link: null,
+  share: null,
   cover: null,
-  md5Image: null,
-  label: null,
-  nbTracks: 14,
-  duration: null,
-  fans: null,
+  coverSmall: null,
+  coverMedium: null,
+  coverBig: null,
+  coverXl: null,
   releaseDate: null,
   recordType: null,
-  explicitLyrics: null,
+  available: null,
   artistId: 10,
 };
 
@@ -140,7 +161,7 @@ describe('Query.album', () => {
     const result = await albumResolvers.Query.album(undefined, { id: '20' });
     expect(getAlbum).toHaveBeenCalledWith('20');
     expect(result?.title).toBe('Discovery');
-    expect(result?.nbTracks).toBe(14);
+    expect(result?.available).toBe(true);
   });
 
   it('returns null when both DB and Deezer fail', async () => {
@@ -279,5 +300,48 @@ describe('Album.tracks', () => {
       expect.objectContaining({ where: { albumId: { in: [20] } } }),
     );
     expect(result).toEqual([{ id: 1, title: 'One More Time', albumId: 20 }]);
+  });
+});
+
+describe('Album.genres', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns parent.genres directly when already resolved (Deezer fallback)', async () => {
+    const mappedAlbum = mapAlbum(MOCK_ALBUM);
+    const result = await albumResolvers.Album.genres(mappedAlbum);
+    expect(mockPrisma.albumGenre.findMany).not.toHaveBeenCalled();
+    expect(result).toBe(mappedAlbum.genres);
+  });
+
+  it('loads from Prisma via AlbumGenre when not already resolved (DB row), batched via findMany', async () => {
+    const genre = { id: 132, name: 'Pop', picture: null };
+    mockPrisma.albumGenre.findMany.mockResolvedValue([{ albumId: 20, genreId: 132, genre }]);
+    const result = await albumResolvers.Album.genres(MOCK_DB_ALBUM);
+    expect(mockPrisma.albumGenre.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { albumId: { in: [20] } } }),
+    );
+    expect(result).toEqual([genre]);
+  });
+});
+
+describe('Album.contributors', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns parent.contributors directly when already resolved (Deezer fallback)', async () => {
+    const mappedAlbum = mapAlbum(MOCK_ALBUM);
+    const result = await albumResolvers.Album.contributors(mappedAlbum);
+    expect(mockPrisma.albumContributor.findMany).not.toHaveBeenCalled();
+    expect(result).toBe(mappedAlbum.contributors);
+  });
+
+  it('loads from Prisma via AlbumContributor when not already resolved (DB row), batched via findMany', async () => {
+    mockPrisma.albumContributor.findMany.mockResolvedValue([
+      { albumId: 20, artistId: 10, role: 'Main', artist: MOCK_DB_ARTIST },
+    ]);
+    const result = await albumResolvers.Album.contributors(MOCK_DB_ALBUM);
+    expect(mockPrisma.albumContributor.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { albumId: { in: [20] } } }),
+    );
+    expect(result).toEqual([MOCK_DB_ARTIST]);
   });
 });

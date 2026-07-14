@@ -56,13 +56,13 @@ const MOCK_PLAYLIST: DeezerPlaylist = {
   id: 30,
   title: 'My Playlist',
   description: 'A great playlist',
-  duration: 3600,
   public: true,
   is_loved_track: false,
   collaborative: false,
-  fans: 42,
+  share: 'https://www.deezer.com/playlist/30?utm_source=deezer',
   link: 'https://www.deezer.com/playlist/30',
   picture: 'https://api.deezer.com/playlist/30/image',
+  creator: { id: 999, name: 'Onoko', link: '', type: 'user' },
   checksum: 'abc123',
   tracks: { data: [MOCK_TRACK] },
   tracklist: '',
@@ -75,10 +75,10 @@ describe('mapPlaylist', () => {
     expect(result.id).toBe('30');
     expect(result.title).toBe('My Playlist');
     expect(result.description).toBe('A great playlist');
-    expect(result.duration).toBe(3600);
     expect(result.public).toBe(true);
-    expect(result.fans).toBe(42);
-    expect(result.link).toBe('https://www.deezer.com/playlist/30');
+    expect(result.share).toBe('https://www.deezer.com/playlist/30?utm_source=deezer');
+    expect(result.creatorId).toBe('999');
+    expect(result.creatorName).toBe('Onoko');
     expect(result.checksum).toBe('abc123');
   });
 
@@ -99,10 +99,12 @@ describe('mapPlaylist', () => {
   });
 
   it('sets nullable fields to null when absent', () => {
-    const { description: _d, fans: _f, checksum: _c, ...minimal } = MOCK_PLAYLIST;
+    const { description: _d, share: _s, creator: _cr, checksum: _c, ...minimal } = MOCK_PLAYLIST;
     const result = mapPlaylist(minimal as DeezerPlaylist);
     expect(result.description).toBeNull();
-    expect(result.fans).toBeNull();
+    expect(result.share).toBeNull();
+    expect(result.creatorId).toBeNull();
+    expect(result.creatorName).toBeNull();
     expect(result.checksum).toBeNull();
   });
 });
@@ -111,15 +113,14 @@ const MOCK_DB_PLAYLIST = {
   id: 30,
   title: 'My Playlist',
   description: 'A great playlist',
-  duration: 3600,
   public: true,
   isLovedTrack: false,
   collaborative: false,
-  fans: 42,
-  link: 'https://www.deezer.com/playlist/30',
+  share: 'https://www.deezer.com/playlist/30?utm_source=deezer',
   picture: 'https://api.deezer.com/playlist/30/image',
+  creatorId: 999n,
+  creatorName: 'Onoko',
   checksum: 'abc123',
-  folderId: null,
 };
 
 describe('Query.playlist', () => {
@@ -139,7 +140,7 @@ describe('Query.playlist', () => {
     const result = await playlistResolvers.Query.playlist(undefined, { id: '30' });
     expect(getPlaylist).toHaveBeenCalledWith('30');
     expect(result?.title).toBe('My Playlist');
-    expect(result?.fans).toBe(42);
+    expect(result?.creatorName).toBe('Onoko');
   });
 
   it('returns null when both DB and Deezer fail', async () => {

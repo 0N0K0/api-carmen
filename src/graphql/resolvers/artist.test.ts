@@ -19,11 +19,12 @@ const MOCK_ARTIST: DeezerArtist = {
   id: 10,
   name: 'Daft Punk',
   link: 'https://www.deezer.com/artist/10',
+  share: 'https://www.deezer.com/artist/10?utm_source=deezer',
   picture: 'https://api.deezer.com/artist/10/image',
-  picture_small: '',
-  picture_medium: '',
-  picture_big: '',
-  picture_xl: '',
+  picture_small: 'https://cdn-images.dzcdn.net/images/artist/x/56x56.jpg',
+  picture_medium: 'https://cdn-images.dzcdn.net/images/artist/x/250x250.jpg',
+  picture_big: 'https://cdn-images.dzcdn.net/images/artist/x/500x500.jpg',
+  picture_xl: 'https://cdn-images.dzcdn.net/images/artist/x/1000x1000.jpg',
   nb_album: 8,
   nb_fan: 5000000,
   tracklist: '',
@@ -36,10 +37,12 @@ describe('mapArtist', () => {
     expect(result).toEqual({
       id: '10',
       name: 'Daft Punk',
-      link: 'https://www.deezer.com/artist/10',
+      share: 'https://www.deezer.com/artist/10?utm_source=deezer',
       picture: 'https://api.deezer.com/artist/10/image',
-      nbAlbum: 8,
-      nbFan: 5000000,
+      pictureSmall: 'https://cdn-images.dzcdn.net/images/artist/x/56x56.jpg',
+      pictureMedium: 'https://cdn-images.dzcdn.net/images/artist/x/250x250.jpg',
+      pictureBig: 'https://cdn-images.dzcdn.net/images/artist/x/500x500.jpg',
+      pictureXl: 'https://cdn-images.dzcdn.net/images/artist/x/1000x1000.jpg',
       isFavorite: null,
       isPinned: false,
       pinnedOrder: null,
@@ -50,27 +53,26 @@ describe('mapArtist', () => {
     expect(mapArtist(MOCK_ARTIST).id).toBe('10');
   });
 
-  it('maps nb_album → nbAlbum, nb_fan → nbFan', () => {
-    const result = mapArtist({ ...MOCK_ARTIST, nb_album: 3, nb_fan: 42 });
-    expect(result.nbAlbum).toBe(3);
-    expect(result.nbFan).toBe(42);
-  });
-
   it('sets nullable fields to null when absent', () => {
-    const { nb_album: _a, nb_fan: _f, ...minimal } = MOCK_ARTIST;
+    const { share: _s, picture_small: _ps, picture_medium: _pm, picture_big: _pb, picture_xl: _px, ...minimal } = MOCK_ARTIST;
     const result = mapArtist(minimal as DeezerArtist);
-    expect(result.nbAlbum).toBeNull();
-    expect(result.nbFan).toBeNull();
+    expect(result.share).toBeNull();
+    expect(result.pictureSmall).toBeNull();
+    expect(result.pictureMedium).toBeNull();
+    expect(result.pictureBig).toBeNull();
+    expect(result.pictureXl).toBeNull();
   });
 });
 
 const MOCK_DB_ARTIST = {
   id: 10,
   name: 'Daft Punk',
-  link: 'https://www.deezer.com/artist/10',
+  share: 'https://www.deezer.com/artist/10?utm_source=deezer',
   picture: 'https://api.deezer.com/artist/10/image',
-  nbAlbum: 8,
-  nbFan: 5000000,
+  pictureSmall: 'https://cdn-images.dzcdn.net/images/artist/x/56x56.jpg',
+  pictureMedium: 'https://cdn-images.dzcdn.net/images/artist/x/250x250.jpg',
+  pictureBig: 'https://cdn-images.dzcdn.net/images/artist/x/500x500.jpg',
+  pictureXl: 'https://cdn-images.dzcdn.net/images/artist/x/1000x1000.jpg',
 };
 
 describe('Query.artist', () => {
