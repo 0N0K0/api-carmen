@@ -8,7 +8,10 @@ import {
   getPlaylist,
   getPlaylistTrackIds,
   getTrack,
+  getUserAlbums,
+  getUserArtists,
   getUserLibrary,
+  getUserPlaylists,
   getUserTracks,
 } from './deezer';
 
@@ -412,6 +415,13 @@ export interface SyncLibraryError {
   message: string;
 }
 
+export interface SyncTypeSummary {
+  synced: number;
+  // uniquement pertinent pour les playlists (miroir des suppressions Deezer)
+  removed?: number;
+  errors: SyncLibraryError[];
+}
+
 export interface SyncLibrarySummary {
   playlistsSynced: number;
   playlistsRemoved: number;
@@ -419,6 +429,133 @@ export interface SyncLibrarySummary {
   artistsSynced: number;
   tracksSynced: number;
   errors: SyncLibraryError[];
+}
+
+/**
+ * Synchronise une liste de playlists Deezer déjà récupérée (partagé entre `syncPlaylists`
+ * et `syncUserLibrary`, pour éviter un double appel Pipe API quand les deux sont combinés).
+ * Miroir : une playlist supprimée (ou plus possédée) côté Deezer disparaît localement.
+ * Garde-fou : ne jamais purger sur une liste vide — une réponse Deezer vide/transitoire
+ * ne doit pas être interprétée comme "l'utilisateur n'a plus rien".
+ * @param {{ id: string }[]} playlists Playlists Deezer de l'utilisateur (Pipe API).
+ * @returns {Promise<SyncTypeSummary>} Nombre synchronisé/supprimé et erreurs rencontrées.
+ */
+async function syncPlaylistsFromList(playlists: { id: string }[]): Promise<SyncTypeSummary> {
+  const prisma = getPrismaClient();
+  const errors: SyncLibraryError[] = [];
+  let synced = 0;
+
+  for (const playlist of playlists) {
+    try {
+      await syncPlaylist(playlist.id);
+      synced += 1;
+    } catch (err) {
+      errors.push({ type: 'playlist', deezerId: playlist.id, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  let removed = 0;
+  if (playlists.length > 0) {
+    const currentIds = playlists.map((p) => Number(p.id));
+    const deleted = await prisma.playlist.deleteMany({ where: { id: { notIn: currentIds } } });
+    removed = deleted.count;
+  }
+
+  return { synced, removed, errors };
+}
+
+/**
+ * Synchronise toutes les playlists possédées par l'utilisateur Deezer (pas seulement
+ * mises en favori). Nécessite `DEEZER_ARL`.
+ * @param {number} [limit=50] Taille de page Pipe API.
+ * @returns {Promise<SyncTypeSummary>} Nombre synchronisé/supprimé et erreurs rencontrées.
+ */
+export async function syncPlaylists(limit = 50): Promise<SyncTypeSummary> {
+  return syncPlaylistsFromList(await getUserPlaylists(limit));
+}
+
+/**
+ * Synchronise une liste d'albums favoris Deezer déjà récupérée (partagé entre
+ * `syncFavoriteAlbums` et `syncUserLibrary`).
+ * Miroir : un album retiré des favoris côté Deezer est démarqué localement (pas
+ * supprimé — catalogue partagé, potentiellement référencé par des tracks synchronisés
+ * indépendamment). Garde-fou sur liste vide.
+ * @param {{ id: string }[]} albums Albums favoris Deezer de l'utilisateur (Pipe API).
+ * @returns {Promise<SyncTypeSummary>} Nombre synchronisé et erreurs rencontrées.
+ */
+async function syncFavoriteAlbumsFromList(albums: { id: string }[]): Promise<SyncTypeSummary> {
+  const prisma = getPrismaClient();
+  const errors: SyncLibraryError[] = [];
+  let synced = 0;
+
+  for (const album of albums) {
+    try {
+      const result = await syncAlbum(album.id);
+      await prisma.album.update({ where: { id: result.id }, data: { isFavorite: true } });
+      synced += 1;
+    } catch (err) {
+      errors.push({ type: 'album', deezerId: album.id, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  if (albums.length > 0) {
+    await prisma.album.updateMany({
+      where: { isFavorite: true, id: { notIn: albums.map((a) => Number(a.id)) } },
+      data: { isFavorite: false },
+    });
+  }
+
+  return { synced, errors };
+}
+
+/**
+ * Synchronise tous les albums favoris de l'utilisateur Deezer. Nécessite `DEEZER_ARL`.
+ * @param {number} [limit=50] Taille de page Pipe API.
+ * @returns {Promise<SyncTypeSummary>} Nombre synchronisé et erreurs rencontrées.
+ */
+export async function syncFavoriteAlbums(limit = 50): Promise<SyncTypeSummary> {
+  return syncFavoriteAlbumsFromList(await getUserAlbums(limit));
+}
+
+/**
+ * Synchronise une liste d'artistes favoris Deezer déjà récupérée (partagé entre
+ * `syncFavoriteArtists` et `syncUserLibrary`).
+ * Miroir : même logique que pour les albums favoris.
+ * @param {{ id: string }[]} artists Artistes favoris Deezer de l'utilisateur (Pipe API).
+ * @returns {Promise<SyncTypeSummary>} Nombre synchronisé et erreurs rencontrées.
+ */
+async function syncFavoriteArtistsFromList(artists: { id: string }[]): Promise<SyncTypeSummary> {
+  const prisma = getPrismaClient();
+  const errors: SyncLibraryError[] = [];
+  let synced = 0;
+
+  for (const artist of artists) {
+    try {
+      const result = await syncArtist(artist.id);
+      await prisma.artist.update({ where: { id: result.id }, data: { isFavorite: true } });
+      synced += 1;
+    } catch (err) {
+      errors.push({ type: 'artist', deezerId: artist.id, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  if (artists.length > 0) {
+    await prisma.artist.updateMany({
+      where: { isFavorite: true, id: { notIn: artists.map((a) => Number(a.id)) } },
+      data: { isFavorite: false },
+    });
+  }
+
+  return { synced, errors };
+}
+
+/**
+ * Synchronise tous les artistes favoris de l'utilisateur Deezer. Nécessite `DEEZER_ARL`.
+ * @param {number} [limit=50] Taille de page Pipe API.
+ * @returns {Promise<SyncTypeSummary>} Nombre synchronisé et erreurs rencontrées.
+ */
+export async function syncFavoriteArtists(limit = 50): Promise<SyncTypeSummary> {
+  return syncFavoriteArtistsFromList(await getUserArtists(limit));
 }
 
 /**
@@ -431,71 +568,19 @@ export interface SyncLibrarySummary {
  * @returns {Promise<SyncLibrarySummary>} Nombre d'éléments synchronisés par catégorie et erreurs rencontrées.
  */
 export async function syncUserLibrary(limit = 50): Promise<SyncLibrarySummary> {
-  const prisma = getPrismaClient();
   const library = await getUserLibrary(limit);
   const errors: SyncLibraryError[] = [];
-  let playlistsSynced = 0;
-  let albumsSynced = 0;
-  let artistsSynced = 0;
+
+  const playlistsResult = await syncPlaylistsFromList(library.playlists);
+  errors.push(...playlistsResult.errors);
+
+  const albumsResult = await syncFavoriteAlbumsFromList(library.albums);
+  errors.push(...albumsResult.errors);
+
+  const artistsResult = await syncFavoriteArtistsFromList(library.artists);
+  errors.push(...artistsResult.errors);
+
   let tracksSynced = 0;
-
-  for (const playlist of library.playlists) {
-    try {
-      await syncPlaylist(playlist.id);
-      playlistsSynced += 1;
-    } catch (err) {
-      errors.push({ type: 'playlist', deezerId: playlist.id, message: err instanceof Error ? err.message : String(err) });
-    }
-  }
-
-  // Miroir : une playlist supprimée (ou plus possédée) côté Deezer doit disparaître
-  // localement. Garde-fou : ne jamais purger sur une liste vide — une réponse Deezer
-  // vide/transitoire ne doit pas être interprétée comme "l'utilisateur n'a plus rien".
-  let playlistsRemoved = 0;
-  if (library.playlists.length > 0) {
-    const currentIds = library.playlists.map((p) => Number(p.id));
-    const deleted = await prisma.playlist.deleteMany({
-      where: { id: { notIn: currentIds } },
-    });
-    playlistsRemoved = deleted.count;
-  }
-
-  for (const album of library.albums) {
-    try {
-      const synced = await syncAlbum(album.id);
-      await prisma.album.update({ where: { id: synced.id }, data: { isFavorite: true } });
-      albumsSynced += 1;
-    } catch (err) {
-      errors.push({ type: 'album', deezerId: album.id, message: err instanceof Error ? err.message : String(err) });
-    }
-  }
-  // Miroir : un album retiré des favoris côté Deezer est démarqué localement (pas
-  // supprimé — catalogue partagé, potentiellement référencé par des tracks synchronisés
-  // indépendamment). Garde-fou sur liste vide, même logique que pour les tracks favoris.
-  if (library.albums.length > 0) {
-    await prisma.album.updateMany({
-      where: { isFavorite: true, id: { notIn: library.albums.map((a) => Number(a.id)) } },
-      data: { isFavorite: false },
-    });
-  }
-
-  for (const artist of library.artists) {
-    try {
-      const synced = await syncArtist(artist.id);
-      await prisma.artist.update({ where: { id: synced.id }, data: { isFavorite: true } });
-      artistsSynced += 1;
-    } catch (err) {
-      errors.push({ type: 'artist', deezerId: artist.id, message: err instanceof Error ? err.message : String(err) });
-    }
-  }
-  // Miroir : même logique pour les artistes retirés des favoris.
-  if (library.artists.length > 0) {
-    await prisma.artist.updateMany({
-      where: { isFavorite: true, id: { notIn: library.artists.map((a) => Number(a.id)) } },
-      data: { isFavorite: false },
-    });
-  }
-
   for (const track of library.tracks) {
     const id = await persistFavoriteTrack(track.id);
     if (id !== null) {
@@ -509,5 +594,12 @@ export async function syncUserLibrary(limit = 50): Promise<SyncLibrarySummary> {
   // succès d'écriture ci-dessus (voir pruneUnfavoritedTracks).
   await pruneUnfavoritedTracks(library.tracks.map((t) => Number(t.id)));
 
-  return { playlistsSynced, playlistsRemoved, albumsSynced, artistsSynced, tracksSynced, errors };
+  return {
+    playlistsSynced: playlistsResult.synced,
+    playlistsRemoved: playlistsResult.removed ?? 0,
+    albumsSynced: albumsResult.synced,
+    artistsSynced: artistsResult.synced,
+    tracksSynced,
+    errors,
+  };
 }

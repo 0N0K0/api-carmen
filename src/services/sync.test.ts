@@ -10,6 +10,9 @@ vi.mock('./deezer', () => ({
   deezerFetchAllFrom: vi.fn(),
   getUserLibrary: vi.fn(),
   getUserTracks: vi.fn(),
+  getUserAlbums: vi.fn(),
+  getUserArtists: vi.fn(),
+  getUserPlaylists: vi.fn(),
   getPlaylistTrackIds: vi.fn(),
 }));
 
@@ -35,10 +38,22 @@ import {
   getPlaylist,
   getPlaylistTrackIds,
   getTrack,
+  getUserAlbums,
+  getUserArtists,
   getUserLibrary,
+  getUserPlaylists,
   getUserTracks,
 } from './deezer';
-import { syncAlbum, syncArtist, syncFavoriteTracks, syncPlaylist, syncUserLibrary } from './sync';
+import {
+  syncAlbum,
+  syncArtist,
+  syncFavoriteAlbums,
+  syncFavoriteArtists,
+  syncFavoriteTracks,
+  syncPlaylist,
+  syncPlaylists,
+  syncUserLibrary,
+} from './sync';
 
 const MOCK_ARTIST: DeezerArtist = {
   id: 10,
@@ -798,6 +813,187 @@ describe('sync service', () => {
         tracksSynced: 0,
         errors: [],
       });
+    });
+  });
+
+  describe('syncPlaylists', () => {
+    const LIB_PLAYLIST = {
+      id: '30', title: 'P', estimatedTracksCount: 1, isFavorite: true, description: null, owner: null,
+    };
+
+    beforeEach(() => {
+      vi.mocked(getPlaylist).mockResolvedValue(MOCK_PLAYLIST);
+      vi.mocked(deezerFetchAll).mockResolvedValue([MOCK_TRACK]);
+    });
+
+    it('syncs every playlist owned by the user', async () => {
+      vi.mocked(getUserPlaylists).mockResolvedValue([LIB_PLAYLIST]);
+
+      const result = await syncPlaylists();
+
+      expect(getUserPlaylists).toHaveBeenCalledWith(50);
+      expect(getPlaylist).toHaveBeenCalledWith('30');
+      expect(result).toEqual({ synced: 1, removed: 0, errors: [] });
+    });
+
+    it('passes a custom limit through to getUserPlaylists', async () => {
+      vi.mocked(getUserPlaylists).mockResolvedValue([]);
+
+      await syncPlaylists(200);
+
+      expect(getUserPlaylists).toHaveBeenCalledWith(200);
+    });
+
+    it('mirrors deletions: removes local playlists no longer present in the Deezer library', async () => {
+      vi.mocked(getUserPlaylists).mockResolvedValue([LIB_PLAYLIST]);
+      mockPrisma.playlist.deleteMany.mockResolvedValue({ count: 3 });
+
+      const result = await syncPlaylists();
+
+      expect(mockPrisma.playlist.deleteMany).toHaveBeenCalledWith({ where: { id: { notIn: [30] } } });
+      expect(result.removed).toBe(3);
+    });
+
+    it('never prunes playlists when the fetched list is empty', async () => {
+      vi.mocked(getUserPlaylists).mockResolvedValue([]);
+
+      const result = await syncPlaylists();
+
+      expect(mockPrisma.playlist.deleteMany).not.toHaveBeenCalled();
+      expect(result).toEqual({ synced: 0, removed: 0, errors: [] });
+    });
+
+    it('isolates a failing playlist: one bad playlist does not block the others', async () => {
+      vi.mocked(getUserPlaylists).mockResolvedValue([LIB_PLAYLIST, { ...LIB_PLAYLIST, id: '31' }]);
+      vi.mocked(getPlaylist).mockImplementation((id) =>
+        id === '31' ? Promise.reject(new Error('boom')) : Promise.resolve(MOCK_PLAYLIST),
+      );
+
+      const result = await syncPlaylists();
+
+      expect(result.synced).toBe(1);
+      expect(result.errors).toEqual([{ type: 'playlist', deezerId: '31', message: 'boom' }]);
+    });
+  });
+
+  describe('syncFavoriteAlbums', () => {
+    const LIB_ALBUM = {
+      id: '20', displayTitle: 'A', releaseDate: null, isExplicit: null, isFavorite: true, contributors: [],
+    };
+
+    beforeEach(() => {
+      vi.mocked(getAlbum).mockResolvedValue({ ...MOCK_ALBUM, artist: MOCK_ARTIST });
+    });
+
+    it('syncs every favorite album and marks it as favorite', async () => {
+      vi.mocked(getUserAlbums).mockResolvedValue([LIB_ALBUM]);
+
+      const result = await syncFavoriteAlbums();
+
+      expect(getUserAlbums).toHaveBeenCalledWith(50);
+      expect(getAlbum).toHaveBeenCalledWith('20');
+      expect(mockPrisma.album.update).toHaveBeenCalledWith({ where: { id: 20 }, data: { isFavorite: true } });
+      expect(result).toEqual({ synced: 1, errors: [] });
+    });
+
+    it('passes a custom limit through to getUserAlbums', async () => {
+      vi.mocked(getUserAlbums).mockResolvedValue([]);
+
+      await syncFavoriteAlbums(200);
+
+      expect(getUserAlbums).toHaveBeenCalledWith(200);
+    });
+
+    it('mirrors deletions: unmarks albums no longer in the current favorites', async () => {
+      vi.mocked(getUserAlbums).mockResolvedValue([LIB_ALBUM]);
+
+      await syncFavoriteAlbums();
+
+      expect(mockPrisma.album.updateMany).toHaveBeenCalledWith({
+        where: { isFavorite: true, id: { notIn: [20] } },
+        data: { isFavorite: false },
+      });
+    });
+
+    it('never unmarks albums when the fetched favorites list is empty', async () => {
+      vi.mocked(getUserAlbums).mockResolvedValue([]);
+
+      const result = await syncFavoriteAlbums();
+
+      expect(mockPrisma.album.updateMany).not.toHaveBeenCalled();
+      expect(result).toEqual({ synced: 0, errors: [] });
+    });
+
+    it('isolates a failing album: one bad album does not block the others', async () => {
+      vi.mocked(getUserAlbums).mockResolvedValue([LIB_ALBUM, { ...LIB_ALBUM, id: '21' }]);
+      vi.mocked(getAlbum).mockImplementation((id) =>
+        id === '21' ? Promise.reject(new Error('boom')) : Promise.resolve({ ...MOCK_ALBUM, artist: MOCK_ARTIST }),
+      );
+
+      const result = await syncFavoriteAlbums();
+
+      expect(result.synced).toBe(1);
+      expect(result.errors).toEqual([{ type: 'album', deezerId: '21', message: 'boom' }]);
+    });
+  });
+
+  describe('syncFavoriteArtists', () => {
+    const LIB_ARTIST = { id: '10', name: 'Ar', fansCount: null, isFavorite: true };
+
+    beforeEach(() => {
+      vi.mocked(getArtist).mockResolvedValue(MOCK_ARTIST);
+      vi.mocked(deezerFetchAll).mockResolvedValue([]);
+    });
+
+    it('syncs every favorite artist and marks it as favorite', async () => {
+      vi.mocked(getUserArtists).mockResolvedValue([LIB_ARTIST]);
+
+      const result = await syncFavoriteArtists();
+
+      expect(getUserArtists).toHaveBeenCalledWith(50);
+      expect(getArtist).toHaveBeenCalledWith('10');
+      expect(mockPrisma.artist.update).toHaveBeenCalledWith({ where: { id: 10 }, data: { isFavorite: true } });
+      expect(result).toEqual({ synced: 1, errors: [] });
+    });
+
+    it('passes a custom limit through to getUserArtists', async () => {
+      vi.mocked(getUserArtists).mockResolvedValue([]);
+
+      await syncFavoriteArtists(200);
+
+      expect(getUserArtists).toHaveBeenCalledWith(200);
+    });
+
+    it('mirrors deletions: unmarks artists no longer in the current favorites', async () => {
+      vi.mocked(getUserArtists).mockResolvedValue([LIB_ARTIST]);
+
+      await syncFavoriteArtists();
+
+      expect(mockPrisma.artist.updateMany).toHaveBeenCalledWith({
+        where: { isFavorite: true, id: { notIn: [10] } },
+        data: { isFavorite: false },
+      });
+    });
+
+    it('never unmarks artists when the fetched favorites list is empty', async () => {
+      vi.mocked(getUserArtists).mockResolvedValue([]);
+
+      const result = await syncFavoriteArtists();
+
+      expect(mockPrisma.artist.updateMany).not.toHaveBeenCalled();
+      expect(result).toEqual({ synced: 0, errors: [] });
+    });
+
+    it('isolates a failing artist: one bad artist does not block the others', async () => {
+      vi.mocked(getUserArtists).mockResolvedValue([LIB_ARTIST, { ...LIB_ARTIST, id: '11' }]);
+      vi.mocked(getArtist).mockImplementation((id) =>
+        id === '11' ? Promise.reject(new Error('boom')) : Promise.resolve(MOCK_ARTIST),
+      );
+
+      const result = await syncFavoriteArtists();
+
+      expect(result.synced).toBe(1);
+      expect(result.errors).toEqual([{ type: 'artist', deezerId: '11', message: 'boom' }]);
     });
   });
 });
