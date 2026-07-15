@@ -226,6 +226,12 @@ const typeDefs = /* GraphQL */ `
     errors: [SyncLibraryError!]!
   }
 
+  type SyncTypeSummary {
+    synced: Int!
+    removed: Int
+    errors: [SyncLibraryError!]!
+  }
+
   type LibraryStats {
     tracksTotal: Int!
     favoriteTracksTotal: Int!
@@ -257,6 +263,9 @@ const typeDefs = /* GraphQL */ `
     syncAlbum(deezerId: ID!): Album!
     syncArtist(deezerId: ID!, limit: Int): Artist!
     syncFavoriteTracks(limit: Int): [Track!]!
+    syncFavoriteAlbums(limit: Int): SyncTypeSummary!
+    syncFavoriteArtists(limit: Int): SyncTypeSummary!
+    syncPlaylists(limit: Int): SyncTypeSummary!
     syncUserLibrary(limit: Int): SyncLibrarySummary!
     pinPlaylist(id: ID!): Playlist!
     unpinPlaylist(id: ID!): Playlist!

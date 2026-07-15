@@ -1,4 +1,12 @@
-import { syncAlbum, syncArtist, syncFavoriteTracks, syncPlaylist } from '../../services/sync';
+import {
+  syncAlbum,
+  syncArtist,
+  syncFavoriteAlbums,
+  syncFavoriteArtists,
+  syncFavoriteTracks,
+  syncPlaylist,
+  syncPlaylists,
+} from '../../services/sync';
 import { mapPrismaAlbum, mapPrismaArtist, mapPrismaPlaylist, mapPrismaTrack } from './mappers';
 
 export const syncResolvers = {
@@ -47,6 +55,37 @@ export const syncResolvers = {
     syncFavoriteTracks: async (_: unknown, args: { limit?: number }) => {
       const tracks = await syncFavoriteTracks(args.limit);
       return tracks.map(mapPrismaTrack);
+    },
+
+    /**
+     * Synchronise tous les albums favoris de l'utilisateur Deezer dans la base de données.
+     * @param {unknown} _ Parent (non utilisé).
+     * @param {{ limit?: number }} args Arguments de la mutation.
+     * @returns {Promise<object>} Résumé de synchro (nombre synchronisé, erreurs).
+     */
+    syncFavoriteAlbums: async (_: unknown, args: { limit?: number }) => {
+      return syncFavoriteAlbums(args.limit);
+    },
+
+    /**
+     * Synchronise tous les artistes favoris de l'utilisateur Deezer dans la base de données.
+     * @param {unknown} _ Parent (non utilisé).
+     * @param {{ limit?: number }} args Arguments de la mutation.
+     * @returns {Promise<object>} Résumé de synchro (nombre synchronisé, erreurs).
+     */
+    syncFavoriteArtists: async (_: unknown, args: { limit?: number }) => {
+      return syncFavoriteArtists(args.limit);
+    },
+
+    /**
+     * Synchronise toutes les playlists possédées par l'utilisateur Deezer (pas seulement
+     * mises en favori) dans la base de données.
+     * @param {unknown} _ Parent (non utilisé).
+     * @param {{ limit?: number }} args Arguments de la mutation.
+     * @returns {Promise<object>} Résumé de synchro (nombre synchronisé/supprimé, erreurs).
+     */
+    syncPlaylists: async (_: unknown, args: { limit?: number }) => {
+      return syncPlaylists(args.limit);
     },
   },
 };
